@@ -18,7 +18,9 @@ public class InstallLabelTests
     [InlineData("installed")]
     [InlineData("Installed")]
     [InlineData("install_succeeded")]
-    public void TheInstalledSpellings_AreOneAnswer(string status) =>
+    [InlineData("completed")]
+    [InlineData("success")]
+    public void TheRunCompletedSpellings_AreOneAnswer(string status) =>
         Assert.Equal("Installed", Label(status));
 
     [Theory]
@@ -31,13 +33,14 @@ public class InstallLabelTests
         Assert.Equal(expected, Label(status));
 
     [Fact]
-    public void CompletedIsNotAnInstall()
+    public void CompletedCountsAsInstalled_EvenWithNoVersion()
     {
-        // All 53 rows spelled this way are script actions -- CimianPreflight,
-        // osquery, SystemKeepTime -- and not one carries an installed version. The
-        // word means the action ran. Folding it into Installed would have claimed
-        // 53 installs that never happened.
-        Assert.Equal("Completed", Label("completed"));
+        // The 53 rows spelled this way are script items with no installed version,
+        // which looks like a reason to separate them. It is not: a script item has
+        // no version to carry, and having run to completion is what installed means
+        // for that item type. The web's ladder and this app's own verdict ladder
+        // both say so, and one app must not disagree with itself.
+        Assert.Equal("Installed", Label("completed"));
     }
 
     [Fact]

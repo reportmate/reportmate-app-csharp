@@ -11,12 +11,17 @@ namespace ReportMate.App.Views.Fleet;
 /// 77,038 beside "Installed" 40,492, "pending_install" 371 beside "Pending Install"
 /// 23, and so on. Charted raw it reads as a platform split rather than a status.
 ///
-/// The fold is deliberately shallow. Case and separators are normalised, which is
-/// pure spelling, and only two synonyms are asserted beyond that. In particular
-/// "completed" is NOT folded into Installed: all 53 of those rows are script actions
-/// -- CimianPreflight, osquery, SystemKeepTime -- with no installed version, so the
-/// word means the action ran, not that a package is present. Folding it would have
-/// claimed 53 installs that never happened.
+/// The fold is deliberately shallow: case and separators, which is pure spelling,
+/// plus the synonyms the web's own ladder asserts.
+///
+/// "completed" is one of those, and it is worth saying why, because the data argues
+/// the other way at first glance: all 53 rows spelled that way are script items --
+/// CimianPreflight, osquery, SystemKeepTime -- and not one carries an installed
+/// version. But a script item has no version to carry, and having run to completion
+/// is exactly what being installed means for that item type. The web treats
+/// install_succeeded, completed and success as one state in lib/installs/status.ts,
+/// and this app's own verdict ladder in InstallStatus already agrees with it, so
+/// splitting them here would have made one app disagree with itself.
 /// </remarks>
 public static class InstallLabel
 {
@@ -35,9 +40,8 @@ public static class InstallLabel
 
         normalized = normalized switch
         {
-            // Every one of these 147 rows carries an installed version, so the item
-            // is installed and only the word differs.
-            "install succeeded" => "installed",
+            // The run-completed states, as the web's ladder lists them.
+            "install succeeded" or "completed" or "success" => "installed",
             "install failed" => "failed",
             _ => normalized,
         };
