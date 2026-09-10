@@ -122,7 +122,7 @@ public sealed record ReportSpec(
             [
                 new("Manufacturer", "manufacturer"),
                 new("Model", "model"),
-                new("Architecture", "architecture"),
+                new("Architecture", "", Derive: Hardware.Normalize),
                 new("Processor", "processor.name"),
                 new("Graphics", "graphics.name"),
                 new("Memory", "memory.totalPhysical|memory.physical_memory", ValueFormat.Bytes),
@@ -136,7 +136,7 @@ public sealed record ReportSpec(
                 new("Processor", new("Processor", "processor.name"), 200),
                 new("Memory", new("Memory", "memory.totalPhysical|memory.physical_memory", ValueFormat.Bytes), 100),
                 new("Graphics", new("Graphics", "graphics.name"), 170),
-                new("Architecture", new("Architecture", "architecture"), 150),
+                new("Architecture", new("Architecture", "", Derive: Hardware.Normalize), 150),
             ]),
 
         ["system"] = new("system",
@@ -201,7 +201,7 @@ public sealed record ReportSpec(
 
         ["network"] = new("network",
             [
-                new("Connection", "raw.activeConnection.connectionType"),
+                new("Connection", "", Derive: Network.ConnectionKind),
                 // No interface distribution. The Windows client puts the interface
                 // INDEX in primaryInterface, friendlyName and interfaceName alike, so
                 // the chart read "9 - 9%, 10 - 8%, 7 - 8%" and said nothing; macOS
@@ -216,7 +216,7 @@ public sealed record ReportSpec(
                 new("Hostname", new("Hostname", "raw.hostname"), 180, Mono: true),
                 new("IP Address", new("IP Address", "raw.activeConnection.ipAddress"), 140, Mono: true),
                 new("MAC", new("MAC", "raw.activeConnection.macAddress"), 150, Mono: true),
-                new("Connection", new("Connection", "raw.activeConnection.connectionType"), 120),
+                new("Connection", new("Connection", "", Derive: Network.ConnectionKind), 120),
                 new("Gateway", new("Gateway", "raw.activeConnection.gateway"), 140, Mono: true),
             ]),
 
