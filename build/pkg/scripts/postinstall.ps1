@@ -13,8 +13,8 @@ $InstallDir = 'C:\Program Files\ReportMate'
 # the dashboard was absent from an installer for its entire existence and nothing
 # said so.
 $expectedPayload = @(
-    'ReportMateDashboard.exe'
     'reportmate.exe'
+    'reportmateutil.exe'
 )
 
 $missing = @()
