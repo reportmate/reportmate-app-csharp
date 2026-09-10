@@ -59,12 +59,11 @@ if (Test-Path $payload) { Remove-Item -LiteralPath $payload -Recurse -Force }
 New-Item -ItemType Directory -Path $payload -Force | Out-Null
 New-Item -ItemType Directory -Path $output -Force | Out-Null
 
-# NOT reportmate.exe. Windows filenames are case-insensitive, so the dashboard and
-# the CLI cannot both take that name in one directory -- the second copy silently
-# replaces the first, and a case-insensitive payload check does not notice. The CLI
-# keeps the plain name because it is the one meant to be called from a shell and
-# what FleetMate looks for.
-Copy-Item $appExe.FullName (Join-Path $payload 'ReportMateDashboard.exe') -Force
+# The dashboard takes the plain name; the CLI is reportmateutil.exe. The two cannot
+# share one: Windows filenames are case-insensitive, so a second copy differing only
+# in case silently replaces the first, and a case-insensitive payload check does not
+# notice -- which is how this package once built containing the CLI alone.
+Copy-Item $appExe.FullName (Join-Path $payload 'reportmate.exe') -Force
 
 # The CLI is a released binary from its own repository. Taking it from the release
 # rather than building or vendoring it means this package ships exactly what that
@@ -91,7 +90,7 @@ if ($LASTEXITCODE -ne 0) { throw "Could not extract $($asset.name)" }
 
 $cli = Get-ChildItem -Path $extract -Filter 'reportmate.exe' -Recurse | Select-Object -First 1
 if (-not $cli) { throw "No reportmate.exe inside $($asset.name)" }
-$cliTarget = Join-Path $payload 'reportmate.exe'
+$cliTarget = Join-Path $payload 'reportmateutil.exe'
 if (Test-Path $cliTarget) {
     throw "Refusing to overwrite an existing payload file at $cliTarget. Two payload files differing only in case collide on Windows."
 }
