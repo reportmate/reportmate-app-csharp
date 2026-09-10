@@ -186,7 +186,11 @@ public sealed record ReportSpec(
         ["network"] = new("network",
             [
                 new("Connection", "raw.activeConnection.connectionType"),
-                new("Interface", "raw.primaryInterface"),
+                // No interface distribution. The Windows client puts the interface
+                // INDEX in primaryInterface, friendlyName and interfaceName alike, so
+                // the chart read "9 - 9%, 10 - 8%, 7 - 8%" and said nothing; macOS
+                // reports no primaryInterface at all. There is no interface name in
+                // this payload to chart.
                 new("DNS server", "raw.dns.servers[]"),
                 new("Wi-Fi SSID", "raw.activeConnection.activeWifiSsid"),
             ],
