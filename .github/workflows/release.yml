@@ -29,9 +29,14 @@ jobs:
 
       - name: Install cimipkg
         shell: pwsh
+        env:
+          # Unauthenticated GitHub API calls are limited per source address, and
+          # runners share one, so this fails on other people's traffic without a
+          # token.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/windowsadmins/cimian-pkg/releases/latest' `
-            -Headers @{ 'User-Agent' = 'reportmate-app-csharp' }
+            -Headers @{ 'User-Agent' = 'reportmate-app-csharp'; 'Authorization' = "Bearer $env:GITHUB_TOKEN" }
           $asset = $release.assets | Where-Object { $_.name -like '*win-x64*.zip' } | Select-Object -First 1
           if (-not $asset) { throw "cimian-pkg $($release.tag_name) has no win-x64 asset" }
           $zip = Join-Path $env:RUNNER_TEMP $asset.name
@@ -48,6 +53,8 @@ jobs:
 
       - name: Build (unsigned)
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # The tag is the version, so the artifacts and the release cannot disagree.
           $version = '${{ github.ref_name }}'.TrimStart('v')
