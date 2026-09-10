@@ -83,6 +83,11 @@ public sealed class ReportPage : FleetPage
     protected override (string, string, Accent)? Heading =>
         (_area.Title, _area.Subtitle, _area.Accent);
 
+    // Rows flattened from a per-device payload are JsonElements owned by the
+    // document they were parsed from, which therefore has to live as long as the
+    // page does.
+    private JsonDocument? _flattened;
+
     protected override async Task<UIElement> BuildAsync()
     {
         var page = new StackPanel();
@@ -94,17 +99,43 @@ public sealed class ReportPage : FleetPage
             return page;
         }
 
-        var result = await FleetApiClient.Instance.GetModuleAsync(spec.Module, spec.Limit);
-        if (!result.Ok)
+        List<JsonElement> loaded;
+        if (spec.Endpoint is { } endpoint && spec.Flatten is { } flatten)
         {
-            page.Children.Add(Ui.TabHeader(_area.Title, _area.Subtitle, "", _area.Accent));
-            page.Children.Add(FleetUnavailable(result.Status, result.Detail));
-            return page;
+            var raw = await FleetApiClient.Instance.GetRawAsync(endpoint);
+            if (!raw.Ok)
+            {
+                page.Children.Add(Ui.TabHeader(_area.Title, _area.Subtitle, "", _area.Accent));
+                page.Children.Add(FleetUnavailable(raw.Status, raw.Detail));
+                return page;
+            }
+
+            // The flattened rows belong to a document the page has to outlive them
+            // with, so it is held here rather than disposed with the response. The
+            // response document is dropped as soon as it has been copied out of:
+            // holding both doubles the memory a large payload costs, and the
+            // installs payload is 42,733 items.
+            var (owner, flattened) = flatten(raw.Data!, spec.ReferencedProperties);
+            raw.Data!.Dispose();
+            _flattened?.Dispose();
+            _flattened = owner;
+            loaded = flattened;
+        }
+        else
+        {
+            var module = await FleetApiClient.Instance.GetModuleAsync(spec.Module, spec.Limit);
+            if (!module.Ok)
+            {
+                page.Children.Add(Ui.TabHeader(_area.Title, _area.Subtitle, "", _area.Accent));
+                page.Children.Add(FleetUnavailable(module.Status, module.Detail));
+                return page;
+            }
+            loaded = module.Data!;
         }
 
-        var rows = ApplyLinkFilters(spec, result.Data!);
-        var capped = spec.Limit is { } cap && result.Data!.Count >= cap;
-        var narrowed = rows.Count != result.Data!.Count;
+        var rows = ApplyLinkFilters(spec, loaded);
+        var capped = spec.Limit is { } cap && loaded.Count >= cap;
+        var narrowed = rows.Count != loaded.Count;
 
         // How many devices a capped page actually covers. An item-level report caps
         // at a row count, and rows arrive grouped by device, so the first five
@@ -116,7 +147,7 @@ public sealed class ReportPage : FleetPage
 
         page.Children.Add(Ui.TabHeader(_area.Title, _area.Subtitle, "", _area.Accent,
             Ui.Caption(narrowed
-                ? $"{rows.Count:N0} of {result.Data!.Count:N0} {spec.RowNoun}"
+                ? $"{rows.Count:N0} of {loaded.Count:N0} {spec.RowNoun}"
                 : capped
                     ? $"first {rows.Count:N0} {spec.RowNoun}, from {deviceCount:N0} devices"
                     : $"{rows.Count:N0} {spec.RowNoun}")));
