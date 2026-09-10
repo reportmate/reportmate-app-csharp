@@ -83,11 +83,6 @@ public sealed class ReportPage : FleetPage
     protected override (string, string, Accent)? Heading =>
         (_area.Title, _area.Subtitle, _area.Accent);
 
-    // Rows flattened from a per-device payload are JsonElements owned by the
-    // document they were parsed from, which therefore has to live as long as the
-    // page does.
-    private JsonDocument? _flattened;
-
     protected override async Task<UIElement> BuildAsync()
     {
         var page = new StackPanel();
@@ -99,39 +94,17 @@ public sealed class ReportPage : FleetPage
             return page;
         }
 
-        List<JsonElement> loaded;
-        if (spec.Endpoint is { } endpoint && spec.Flatten is { } flatten)
+        var result = spec.PageSize is { } pageSize
+            ? await FleetApiClient.Instance.GetAllPagesAsync(spec.Module, pageSize)
+            : await FleetApiClient.Instance.GetModuleAsync(spec.Module, spec.Limit);
+        if (!result.Ok)
         {
-            var raw = await FleetApiClient.Instance.GetRawAsync(endpoint);
-            if (!raw.Ok)
-            {
-                page.Children.Add(Ui.TabHeader(_area.Title, _area.Subtitle, "", _area.Accent));
-                page.Children.Add(FleetUnavailable(raw.Status, raw.Detail));
-                return page;
-            }
+            page.Children.Add(Ui.TabHeader(_area.Title, _area.Subtitle, "", _area.Accent));
+            page.Children.Add(FleetUnavailable(result.Status, result.Detail));
+            return page;
+        }
 
-            // The flattened rows belong to a document the page has to outlive them
-            // with, so it is held here rather than disposed with the response. The
-            // response document is dropped as soon as it has been copied out of:
-            // holding both doubles the memory a large payload costs, and the
-            // installs payload is 42,733 items.
-            var (owner, flattened) = flatten(raw.Data!, spec.ReferencedProperties);
-            raw.Data!.Dispose();
-            _flattened?.Dispose();
-            _flattened = owner;
-            loaded = flattened;
-        }
-        else
-        {
-            var module = await FleetApiClient.Instance.GetModuleAsync(spec.Module, spec.Limit);
-            if (!module.Ok)
-            {
-                page.Children.Add(Ui.TabHeader(_area.Title, _area.Subtitle, "", _area.Accent));
-                page.Children.Add(FleetUnavailable(module.Status, module.Detail));
-                return page;
-            }
-            loaded = module.Data!;
-        }
+        var loaded = result.Data!;
 
         var rows = ApplyLinkFilters(spec, loaded);
         var capped = spec.Limit is { } cap && loaded.Count >= cap;
@@ -189,7 +162,7 @@ public sealed class ReportPage : FleetPage
                 : [raw];
             if (wanted.Length == 0) continue;
 
-            var field = new Field(filter.Key, filter.Path);
+            var field = new Field(filter.Key, filter.Path, Derive: filter.Derive);
             rows = rows
                 .Where(r => field.ReadAll(r)
                     .Any(v => wanted.Contains(v, StringComparer.OrdinalIgnoreCase)))
