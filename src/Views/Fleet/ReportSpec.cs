@@ -25,7 +25,19 @@ public enum ValueFormat
 /// a security report is the difference between antivirus being enabled on almost
 /// every Windows machine and appearing to be missing from half the fleet.
 /// </param>
-public sealed record Field(string Label, string Path, ValueFormat Format = ValueFormat.Text, string? Platform = null)
+/// <param name="Derive">
+/// Computes the value from the whole row instead of reading one path. Some
+/// measurements do not exist as a field: the two clients answer "how was this
+/// enrolled" in different vocabularies, and the answer for a Windows device is
+/// partly in a different field again, so the honest value has to be derived the
+/// way the web report derives it.
+/// </param>
+public sealed record Field(
+    string Label,
+    string Path,
+    ValueFormat Format = ValueFormat.Text,
+    string? Platform = null,
+    Func<JsonElement, string?>? Derive = null)
 {
     /// <summary>
     /// The paths to try, in order. The two clients name the same measurement
@@ -36,7 +48,9 @@ public sealed record Field(string Label, string Path, ValueFormat Format = Value
     private string[] Paths => Path.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
     /// <summary>The value as a display string, or empty when no path resolves.</summary>
-    public string Read(JsonElement row) => FirstValue(row) is { } v ? Format switch
+    public string Read(JsonElement row) => Derive is not null
+        ? Derive(row) ?? ""
+        : FirstValue(row) is { } v ? Format switch
     {
         ValueFormat.Bytes => Json.Bytes(v),
         ValueFormat.Megabytes => Json.Megabytes(v),
@@ -52,7 +66,9 @@ public sealed record Field(string Label, string Path, ValueFormat Format = Value
 
     /// <summary>Every value at this path — one for a scalar, many across an array.</summary>
     public IEnumerable<string> ReadAll(JsonElement row) =>
-        Paths.Select(p => Json.ReadMany(row, p).ToList()).FirstOrDefault(v => v.Count > 0)
+        Derive is not null
+            ? (Derive(row) is { Length: > 0 } d ? [d] : Array.Empty<string>())
+            : Paths.Select(p => Json.ReadMany(row, p).ToList()).FirstOrDefault(v => v.Count > 0)
             ?.Select(v => Format switch
         {
             ValueFormat.Bytes => Json.Bytes(v),
@@ -223,18 +239,21 @@ public sealed record ReportSpec(
         ["management"] = new("management",
             [
                 new("Provider", "provider"),
-                new("Enrolled", "isEnrolled"),
+                // No separate "Enrolled" chart. isEnrolled and enrollmentStatus
+                // partition the fleet identically -- true/false against
+                // Enrolled/Not Enrolled, 878 and 10 either way -- so charting both
+                // put two bars side by side saying one thing twice. The web report
+                // charts the status and uses the boolean only as a field.
                 new("Enrollment status", "enrollmentStatus"),
-                new("Enrollment type", "enrollmentType"),
+                new("Bootstrap method", "", Derive: Management.BootstrapMethod),
                 new("Tenant", "tenantName"),
             ],
             [
                 new("Device", new("Device", "deviceName"), Star: true),
                 new("Serial", new("Serial", "serialNumber"), 150, Mono: true),
                 new("Provider", new("Provider", "provider"), 150),
-                new("Enrolled", new("Enrolled", "isEnrolled"), 95),
                 new("Status", new("Status", "enrollmentStatus"), 140),
-                new("Type", new("Type", "enrollmentType"), 140),
+                new("Bootstrap", new("Bootstrap", "", Derive: Management.BootstrapMethod), 140),
                 new("Tenant", new("Tenant", "tenantName"), 170),
             ]),
 

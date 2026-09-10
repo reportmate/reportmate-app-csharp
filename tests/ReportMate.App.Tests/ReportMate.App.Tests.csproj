@@ -20,6 +20,7 @@
     -->
     <Compile Include="..\..\src\Services\DeepLink.cs" Link="DeepLink.cs" />
     <Compile Include="..\..\src\Services\InstallStatus.cs" Link="InstallStatus.cs" />
+    <Compile Include="..\..\src\Views\Fleet\Management.cs" Link="Management.cs" />
     <!-- The module models reference each other, so they come in as the one set. -->
     <Compile Include="..\..\client\src\Models\Modules\*.cs" Link="Models\%(Filename)%(Extension)" />
   </ItemGroup>
