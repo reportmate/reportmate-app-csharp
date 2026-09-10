@@ -49,7 +49,7 @@ public partial class App : Application
     {
         Log($"DispatcherUnhandledException: {e.Exception}");
         e.Handled = true;
-        MessageBox.Show(e.Exception.Message, "Managed Reports Runner", MessageBoxButton.OK, MessageBoxImage.Error);
+        MessageBox.Show(e.Exception.Message, "ReportMate", MessageBoxButton.OK, MessageBoxImage.Error);
     }
 
     private static void Log(string message)

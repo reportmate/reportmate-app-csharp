@@ -23,7 +23,7 @@
 
             <StackPanel HorizontalAlignment="Center" Margin="0,8,0,20">
                 <Image x:Name="AppIcon" Width="64" Height="64" HorizontalAlignment="Center" Margin="0,0,0,8" />
-                <TextBlock Text="Managed Reports Runner" Style="{StaticResource PageTitleTextStyle}" HorizontalAlignment="Center" />
+                <TextBlock Text="ReportMate" Style="{StaticResource PageTitleTextStyle}" HorizontalAlignment="Center" />
                 <TextBlock Text="Device telemetry collection and reporting for endpoint monitoring."
                            Style="{StaticResource SubtitleTextStyle}" TextAlignment="Center" MaxWidth="500" Margin="0,4,0,8" />
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">

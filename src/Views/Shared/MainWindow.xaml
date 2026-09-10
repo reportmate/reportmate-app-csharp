@@ -5,7 +5,7 @@
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         ui:WindowHelper.UseModernWindowStyle="True"
         ui:TitleBar.ExtendViewIntoTitleBar="True"
-        Title="Managed Reports Runner"
+        Title="ReportMate"
         Height="960" Width="1440" MinHeight="640" MinWidth="900"
         WindowStartupLocation="CenterScreen">
 
