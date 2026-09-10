@@ -82,7 +82,17 @@ public sealed record Field(
 /// comma-separated list and a row matches any of them, which is how the web report
 /// pages carry their multi-select filters.
 /// </summary>
-public sealed record LinkFilter(string Key, string Path, bool MultiValue = false);
+/// <param name="Derive">
+/// Set when the field the link narrows is a derived one. Without it a link filtering
+/// on a status matches the raw spelling while the chart counts the normalised one,
+/// so clicking "Installed" would drop the 147 rows spelled "install_succeeded" that
+/// the bar had just counted.
+/// </param>
+public sealed record LinkFilter(
+    string Key,
+    string Path,
+    bool MultiValue = false,
+    Func<JsonElement, string?>? Derive = null);
 
 /// <summary>A table column in a report.</summary>
 public sealed record ReportColumn(string Header, Field Field, double? Width = null, bool Mono = false, bool Star = false);
@@ -107,19 +117,14 @@ public sealed record ReportSpec(
     string RowNoun = "devices",
     int? Limit = null,
     IReadOnlyList<LinkFilter>? LinkFilters = null,
-    // Set when the flat module endpoint cannot serve the fleet and a per-device
-    // payload has to be flattened instead.
-    string? Endpoint = null,
-    Func<JsonDocument, IReadOnlySet<string>, (JsonDocument Owner, List<JsonElement> Rows)>? Flatten = null)
+    // Set when one request cannot serve the fleet, so every page is followed.
+    int? PageSize = null)
 {
     /// <summary>The link keys this report narrows by, empty when it takes none.</summary>
     public IReadOnlyList<LinkFilter> Filters => LinkFilters ?? [];
 
     /// <summary>
-    /// The top-level property names this report can read, for a flattener deciding
-    /// what to carry across. The installs payload holds 29 fields per item and the
-    /// report shows ten of them; copying the rest into the flattened document costs
-    /// memory for data nothing can display.
+    /// The top-level property names this report can read.
     /// </summary>
     public IReadOnlySet<string> ReferencedProperties
     {
@@ -328,25 +333,21 @@ public sealed record ReportSpec(
 
         ["installs"] = new("installs",
             [
-                new("Status", "currentStatus"),
+                new("Status", "", Derive: InstallLabel.Status),
                 new("Item", "itemName"),
                 new("Catalog", "catalog"),
-                new("Category", "category"),
-                // No platform distribution: only Cimian reports managed items, so
-                // every row here is a Windows row and the chart was one bar.
+                new("Platform", "platform"),
             ],
             [
                 new("Item", new("Item", "itemName"), Star: true),
-                new("Status", new("Status", "currentStatus"), 130),
+                new("Status", new("Status", "", Derive: InstallLabel.Status), 130),
                 new("Installed", new("Installed", "installedVersion"), 150),
                 new("Latest", new("Latest", "latestVersion"), 150),
                 new("Device", new("Device", "deviceName"), 190),
                 new("Serial", new("Serial", "serialNumber"), 150, Mono: true),
-            ], RowNoun: "managed items",
-            Endpoint: Fleet.Installs.Endpoint, Flatten: Fleet.Installs.Flatten,
-            LinkFilters:
+            ], RowNoun: "managed items", PageSize: 5000, LinkFilters:
             [
-                new("filter", "currentStatus"),
+                new("filter", "currentStatus", Derive: InstallLabel.Status),
                 new("items", "itemName", MultiValue: true),
                 new("catalogs", "catalog", MultiValue: true),
                 new("usages", "usage", MultiValue: true),
