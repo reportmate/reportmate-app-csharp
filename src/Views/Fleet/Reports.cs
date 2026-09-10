@@ -80,6 +80,9 @@ public sealed class ReportPage : FleetPage
 
     public ReportPage(ReportArea area) => _area = area;
 
+    protected override (string, string, Accent)? Heading =>
+        (_area.Title, _area.Subtitle, _area.Accent);
+
     protected override async Task<UIElement> BuildAsync()
     {
         var page = new StackPanel();

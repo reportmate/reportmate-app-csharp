@@ -8,6 +8,9 @@ namespace ReportMate.App.Views.Fleet;
 /// <summary>The web app's device list: every reporting device, searchable and filterable.</summary>
 public sealed class DevicesPage : FleetPage
 {
+    protected override (string, string, Accent)? Heading =>
+        ("Devices", "Every device reporting to ReportMate", Accent.Blue);
+
     protected override async Task<UIElement> BuildAsync()
     {
         var result = await FleetApiClient.Instance.GetDevicesAsync();

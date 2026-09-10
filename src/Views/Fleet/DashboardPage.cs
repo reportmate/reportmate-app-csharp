@@ -13,6 +13,9 @@ namespace ReportMate.App.Views.Fleet;
 /// </summary>
 public sealed class DashboardPage : FleetPage
 {
+    protected override (string, string, Accent)? Heading =>
+        ("Dashboard", "Fleet status at a glance", Accent.Blue);
+
     protected override async Task<UIElement> BuildAsync()
     {
         var result = await FleetApiClient.Instance.GetDashboardAsync();

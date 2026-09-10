@@ -13,6 +13,9 @@ namespace ReportMate.App.Views.Fleet;
 /// </summary>
 public sealed class CoveragePage : FleetPage
 {
+    protected override (string, string, Accent)? Heading =>
+        ("Usage Coverage", "Which devices are reporting application usage", Accent.Emerald);
+
     protected override async Task<UIElement> BuildAsync()
     {
         var result = await FleetApiClient.Instance.GetRawAsync(
@@ -143,6 +146,9 @@ public sealed class AppUsagePage : FleetPage
         _app = app;
         _days = days;
     }
+
+    protected override (string, string, Accent)? Heading =>
+        (_app, $"Usage across the fleet over the last {_days} days", Accent.Blue);
 
     protected override async Task<UIElement> BuildAsync()
     {

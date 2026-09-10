@@ -8,6 +8,9 @@ namespace ReportMate.App.Views.Fleet;
 /// <summary>The web app's fleet events view.</summary>
 public sealed class EventsPage : FleetPage
 {
+    protected override (string, string, Accent)? Heading =>
+        ("Events", "What the fleet has reported", Accent.Cyan);
+
     protected override async Task<UIElement> BuildAsync()
     {
         var result = await FleetApiClient.Instance.GetEventsAsync(500);
