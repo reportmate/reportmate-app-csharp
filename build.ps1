@@ -52,7 +52,13 @@ $cliAssetsByArch = @{
 # ── The CLI release ─────────────────────────────────────────────────────
 # Resolved once for every architecture, so one build cannot mix CLI versions
 # across its packages.
+# An unauthenticated GitHub API call is limited per source address, and CI runners
+# share theirs -- so in CI the limit is reached by other people's builds and this
+# one fails on a request it never made. A token raises the limit to per-account.
 $headers = @{ 'User-Agent' = 'reportmate-app-csharp' }
+$githubToken = $env:GITHUB_TOKEN
+if (-not $githubToken) { $githubToken = $env:GH_TOKEN }
+if ($githubToken) { $headers['Authorization'] = "Bearer $githubToken" }
 $wanted = $architectures | ForEach-Object { $cliAssetsByArch[$_] } | Select-Object -Unique
 
 # Built with += so a response that is already a list is flattened into one release
