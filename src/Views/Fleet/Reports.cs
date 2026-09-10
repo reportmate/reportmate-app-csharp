@@ -195,6 +195,16 @@ public sealed class ReportPage : FleetPage
                     counts[value] = counts.GetValueOrDefault(value) + 1;
             }
 
+            // Rows that answered nothing get a bucket of their own, so the bars sum to
+            // the population and a field the other platform does not report shows up
+            // as a large visible Unknown rather than a quietly smaller chart. Only
+            // for scalar fields: on a path that crosses an array, answering nothing
+            // means the device has none of that thing, which is not the same as not
+            // having said.
+            var scalar = !field.Path.Contains("[]", StringComparison.Ordinal);
+            if (scalar && answered < source.Count)
+                counts["Unknown"] = counts.GetValueOrDefault("Unknown") + (source.Count - answered);
+
             if (counts.Count < 2) continue;
 
             var total = counts.Values.Sum();
