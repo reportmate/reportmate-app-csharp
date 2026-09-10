@@ -2,185 +2,109 @@
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:ui="http://schemas.modernwpf.com/2019"
-      xmlns:sys="clr-namespace:System;assembly=mscorlib"
       Foreground="{DynamicResource TextPrimaryBrush}">
     <Page.Resources>
         <Style x:Key="FieldLabel" TargetType="TextBlock" BasedOn="{StaticResource StatLabelStyle}">
-            <Setter Property="Margin" Value="0,10,0,4" />
+            <Setter Property="Margin" Value="0,14,0,4" />
         </Style>
-        <Style x:Key="PolicyNote" TargetType="StackPanel">
-            <Setter Property="Orientation" Value="Horizontal" />
-            <Setter Property="Margin" Value="0,4,0,0" />
-        </Style>
-        <Style x:Key="CardHeader" TargetType="StackPanel">
-            <Setter Property="Orientation" Value="Horizontal" />
-            <Setter Property="Margin" Value="0,0,0,6" />
+        <Style x:Key="SectionBody" TargetType="StackPanel">
+            <Setter Property="MaxWidth" Value="620" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="Margin" Value="4,8,4,4" />
         </Style>
     </Page.Resources>
 
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel MaxWidth="1040" Margin="28,24,28,32" HorizontalAlignment="Center">
 
-            <StackPanel HorizontalAlignment="Center" Margin="0,8,0,20">
-                <Image x:Name="AppIcon" Width="64" Height="64" HorizontalAlignment="Center" Margin="0,0,0,8" />
-                <TextBlock Text="ReportMate" Style="{StaticResource PageTitleTextStyle}" HorizontalAlignment="Center" />
-                <TextBlock Text="Device telemetry collection and reporting for endpoint monitoring."
-                           Style="{StaticResource SubtitleTextStyle}" TextAlignment="Center" MaxWidth="500" Margin="0,4,0,8" />
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                    <ui:HyperlinkButton Content="Documentation" NavigateUri="https://github.com/reportmate/reportmate-client-win/wiki" />
-                    <ui:HyperlinkButton Content="Report Issue" NavigateUri="https://github.com/reportmate/reportmate-client-win/issues" Margin="16,0,0,0" />
-                </StackPanel>
-                <TextBlock Text="{Binding VersionDisplay}" Style="{StaticResource CaptionTextStyle}" HorizontalAlignment="Center" />
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,6,0,0"
+            <StackPanel Margin="0,0,0,18">
+                <TextBlock Text="Settings" Style="{StaticResource PageTitleTextStyle}" />
+                <TextBlock Text="This machine's connection to the fleet, and the fleet's own settings."
+                           Style="{StaticResource SubtitleTextStyle}" Margin="0,4,0,0" />
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0"
                             Visibility="{Binding IsSaveStatusVisible, Converter={StaticResource BoolToVisibility}}">
                     <ui:FontIcon Glyph="{Binding SaveStatusGlyph}" FontSize="13" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,6,0" />
                     <TextBlock Text="{Binding SaveStatusMessage}" Style="{StaticResource CaptionTextStyle}" VerticalAlignment="Center" />
                 </StackPanel>
             </StackPanel>
 
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="16" />
-                    <ColumnDefinition Width="1.2*" />
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="16" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
+            <!--
+                One tab per section, matching the web app's settings menu and the Mac
+                client's. What used to be here was the collection agent's own
+                configuration (osquery path, collection interval, Cimian
+                integration, retry count, proxy, cache directory) which this app
+                inherited from the runner it was forked from and which a dashboard
+                cannot act on. The only machine-local settings a dashboard needs are
+                the ones that let it read the fleet at all.
+            -->
+            <!-- The device page's tab strip, reused so the two look like one app. -->
+            <StackPanel x:Name="SectionTabs" Orientation="Horizontal" Margin="0,0,0,4">
+                <RadioButton Content="General" Tag="General" GroupName="SettingsSections"
+                             Style="{StaticResource DeviceTabStyle}" Checked="OnSectionChecked" IsChecked="True" />
+                <RadioButton Content="Inventory Mapping" Tag="Inventory" GroupName="SettingsSections"
+                             Style="{StaticResource DeviceTabStyle}" Checked="OnSectionChecked" />
+                <RadioButton Content="Security Rules" Tag="Security" GroupName="SettingsSections"
+                             Style="{StaticResource DeviceTabStyle}" Checked="OnSectionChecked" />
+                <RadioButton Content="Kiosk Displays" Tag="Kiosk" GroupName="SettingsSections"
+                             Style="{StaticResource DeviceTabStyle}" Checked="OnSectionChecked" />
+                <RadioButton Content="Maintenance" Tag="Maintenance" GroupName="SettingsSections"
+                             Style="{StaticResource DeviceTabStyle}" Checked="OnSectionChecked" />
+            </StackPanel>
+            <Border Style="{StaticResource CardStyle}" Padding="22" Margin="0,4,0,0">
+                <Grid>
+                    <StackPanel x:Name="GeneralBody" Style="{StaticResource SectionBody}">
+                    <StackPanel Style="{StaticResource SectionBody}">
+                        <TextBlock Text="Appearance" Style="{StaticResource SectionHeaderStyle}" Margin="0,4,0,0" />
+                        <TextBlock Text="Theme" Style="{StaticResource FieldLabel}" />
+                        <ComboBox x:Name="ThemeBox" Width="240" HorizontalAlignment="Left"
+                                  SelectionChanged="OnThemeChanged">
+                            <ComboBoxItem Content="Follow system" Tag="Default" />
+                            <ComboBoxItem Content="Light" Tag="Light" />
+                            <ComboBoxItem Content="Dark" Tag="Dark" />
+                        </ComboBox>
 
-                <!-- Connection -->
-                <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource CardStyle}" Padding="20">
-                    <StackPanel>
-                        <StackPanel Style="{StaticResource CardHeader}">
-                            <ui:FontIcon Glyph="&#xE943;" FontSize="18" Foreground="{DynamicResource IconBlueForeground}" Margin="0,0,10,0" />
-                            <TextBlock Text="Connection" Style="{StaticResource SectionHeaderStyle}" VerticalAlignment="Center" />
-                        </StackPanel>
+                        <TextBlock Text="Connection" Style="{StaticResource SectionHeaderStyle}" Margin="0,22,0,0" />
+                        <TextBlock Text="Where this machine reads the fleet from. Stored on this machine only."
+                                   Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" Margin="0,2,0,0" />
 
                         <TextBlock Text="API URL" Style="{StaticResource FieldLabel}" />
-                        <TextBox Text="{Binding ApiUrl, UpdateSourceTrigger=PropertyChanged}" ui:ControlHelper.PlaceholderText="https://api.reportmate.example.com"
+                        <TextBox Text="{Binding ApiUrl, UpdateSourceTrigger=PropertyChanged}"
+                                 ui:ControlHelper.PlaceholderText="https://reportmate.example.org"
                                  IsEnabled="{Binding IsApiUrlLocked, Converter={StaticResource InvertBool}}" />
-                        <StackPanel Style="{StaticResource PolicyNote}" Visibility="{Binding IsApiUrlLocked, Converter={StaticResource BoolToVisibility}}">
-                            <ui:FontIcon Glyph="&#xE72E;" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,4,0" />
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0"
+                                    Visibility="{Binding IsApiUrlLocked, Converter={StaticResource BoolToVisibility}}">
                             <TextBlock Text="Managed by Policy" Style="{StaticResource CaptionTextStyle}" />
                         </StackPanel>
 
-                        <TextBlock Text="API Key" Style="{StaticResource FieldLabel}" />
-                        <PasswordBox x:Name="ApiKeyBox" PasswordChanged="OnApiKeyChanged"
-                                     ui:ControlHelper.PlaceholderText="{Binding ApiKeyPlaceholderText}"
-                                     IsEnabled="{Binding IsApiKeyLocked, Converter={StaticResource InvertBool}}" />
-                        <StackPanel Style="{StaticResource PolicyNote}" Visibility="{Binding IsApiKeyLocked, Converter={StaticResource BoolToVisibility}}">
-                            <ui:FontIcon Glyph="&#xE72E;" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,4,0" />
-                            <TextBlock Text="Managed by Policy" Style="{StaticResource CaptionTextStyle}" />
-                        </StackPanel>
-
-                        <TextBlock Text="Passphrase" Style="{StaticResource FieldLabel}" />
+                        <!--
+                            The passphrase, not the API key. The runner's key is an
+                            ingest credential: it can report this device's data in but
+                            is refused for every read, so a dashboard configured with
+                            it shows nothing on every page.
+                        -->
+                        <TextBlock Text="Read passphrase" Style="{StaticResource FieldLabel}" />
                         <PasswordBox x:Name="PassphraseBox" PasswordChanged="OnPassphraseChanged"
                                      ui:ControlHelper.PlaceholderText="{Binding PassphrasePlaceholderText}"
                                      IsEnabled="{Binding IsPassphraseLocked, Converter={StaticResource InvertBool}}" />
-                        <StackPanel Style="{StaticResource PolicyNote}" Visibility="{Binding IsPassphraseLocked, Converter={StaticResource BoolToVisibility}}">
-                            <ui:FontIcon Glyph="&#xE72E;" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,4,0" />
-                            <TextBlock Text="Managed by Policy" Style="{StaticResource CaptionTextStyle}" />
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-
-                <!-- Collection -->
-                <Border Grid.Row="0" Grid.Column="2" Style="{StaticResource CardStyle}" Padding="20">
-                    <StackPanel>
-                        <StackPanel Style="{StaticResource CardHeader}">
-                            <ui:FontIcon Glyph="&#xE916;" FontSize="18" Foreground="{DynamicResource IconBlueForeground}" Margin="0,0,10,0" />
-                            <TextBlock Text="Collection" Style="{StaticResource SectionHeaderStyle}" VerticalAlignment="Center" />
-                        </StackPanel>
-
-                        <TextBlock Text="Collection Interval (seconds)" Style="{StaticResource FieldLabel}" />
-                        <ui:NumberBox Value="{Binding CollectionIntervalValue, Mode=TwoWay}" Minimum="60" Maximum="86400" SpinButtonPlacementMode="Compact"
-                                      IsEnabled="{Binding IsCollectionIntervalLocked, Converter={StaticResource InvertBool}}" />
-                        <StackPanel Style="{StaticResource PolicyNote}" Visibility="{Binding IsCollectionIntervalLocked, Converter={StaticResource BoolToVisibility}}">
-                            <ui:FontIcon Glyph="&#xE72E;" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,4,0" />
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0"
+                                    Visibility="{Binding IsPassphraseLocked, Converter={StaticResource BoolToVisibility}}">
                             <TextBlock Text="Managed by Policy" Style="{StaticResource CaptionTextStyle}" />
                         </StackPanel>
 
-                        <TextBlock Text="Max Data Age (minutes)" Style="{StaticResource FieldLabel}" />
-                        <ui:NumberBox Value="{Binding MaxDataAgeValue, Mode=TwoWay}" Minimum="1" Maximum="1440" SpinButtonPlacementMode="Compact"
-                                      IsEnabled="{Binding IsMaxDataAgeLocked, Converter={StaticResource InvertBool}}" />
-
-                        <TextBlock Text="API Timeout (seconds)" Style="{StaticResource FieldLabel}" />
-                        <ui:NumberBox Value="{Binding ApiTimeoutValue, Mode=TwoWay}" Minimum="10" Maximum="3600" SpinButtonPlacementMode="Compact"
-                                      IsEnabled="{Binding IsApiTimeoutLocked, Converter={StaticResource InvertBool}}" />
-
-                        <TextBlock Text="osquery Path" Style="{StaticResource FieldLabel}" />
-                        <TextBox Text="{Binding OsQueryPath, UpdateSourceTrigger=PropertyChanged}" ui:ControlHelper.PlaceholderText="C:\Program Files\osquery\osqueryi.exe"
-                                 IsEnabled="{Binding IsOsQueryPathLocked, Converter={StaticResource InvertBool}}" />
-                        <StackPanel Style="{StaticResource PolicyNote}" Visibility="{Binding IsOsQueryPathLocked, Converter={StaticResource BoolToVisibility}}">
-                            <ui:FontIcon Glyph="&#xE72E;" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,4,0" />
-                            <TextBlock Text="Managed by Policy" Style="{StaticResource CaptionTextStyle}" />
-                        </StackPanel>
-
-                        <TextBlock Text="Storage Analysis Mode" Style="{StaticResource FieldLabel}" />
-                        <ComboBox SelectedItem="{Binding StorageMode, Mode=TwoWay}" HorizontalAlignment="Stretch"
-                                  IsEnabled="{Binding IsStorageModeLocked, Converter={StaticResource InvertBool}}">
-                            <sys:String>auto</sys:String>
-                            <sys:String>quick</sys:String>
-                            <sys:String>deep</sys:String>
-                        </ComboBox>
-                        <StackPanel Style="{StaticResource PolicyNote}" Visibility="{Binding IsStorageModeLocked, Converter={StaticResource BoolToVisibility}}">
-                            <ui:FontIcon Glyph="&#xE72E;" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,4,0" />
-                            <TextBlock Text="Managed by Policy" Style="{StaticResource CaptionTextStyle}" />
+                        <TextBlock Text="About" Style="{StaticResource SectionHeaderStyle}" Margin="0,22,0,0" />
+                        <TextBlock Text="{Binding VersionDisplay}" Style="{StaticResource CaptionTextStyle}" Margin="0,6,0,0" />
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                            <ui:HyperlinkButton Content="Documentation" NavigateUri="https://github.com/reportmate/reportmate-app-csharp" />
+                            <ui:HyperlinkButton Content="Report Issue" NavigateUri="https://github.com/reportmate/reportmate-app-csharp/issues" Margin="12,0,0,0" />
                         </StackPanel>
                     </StackPanel>
-                </Border>
-
-                <!-- Behavior -->
-                <Border Grid.Row="2" Grid.Column="0" Style="{StaticResource CardStyle}" Padding="20">
-                    <StackPanel>
-                        <StackPanel Style="{StaticResource CardHeader}">
-                            <ui:FontIcon Glyph="&#xE713;" FontSize="18" Foreground="{DynamicResource IconBlueForeground}" Margin="0,0,10,0" />
-                            <TextBlock Text="Behavior" Style="{StaticResource SectionHeaderStyle}" VerticalAlignment="Center" />
-                        </StackPanel>
-
-                        <ui:ToggleSwitch Header="Debug logging" OnContent="On" OffContent="Off" Margin="0,8,0,0"
-                                         IsOn="{Binding DebugLogging, Mode=TwoWay}"
-                                         IsEnabled="{Binding IsDebugLoggingLocked, Converter={StaticResource InvertBool}}" />
-                        <ui:ToggleSwitch Header="Cimian integration" OnContent="On" OffContent="Off" Margin="0,8,0,0"
-                                         IsOn="{Binding CimianIntegrationEnabled, Mode=TwoWay}"
-                                         IsEnabled="{Binding IsCimianIntegrationLocked, Converter={StaticResource InvertBool}}" />
-                        <ui:ToggleSwitch Header="Skip certificate validation" OnContent="On" OffContent="Off" Margin="0,8,0,0"
-                                         IsOn="{Binding SkipCertificateValidation, Mode=TwoWay}"
-                                         IsEnabled="{Binding IsSkipCertValidationLocked, Converter={StaticResource InvertBool}}" />
-
-                        <TextBlock Text="Max Retry Attempts" Style="{StaticResource FieldLabel}" />
-                        <ui:NumberBox Value="{Binding MaxRetryValue, Mode=TwoWay}" Minimum="0" Maximum="10" SpinButtonPlacementMode="Compact"
-                                      IsEnabled="{Binding IsMaxRetryLocked, Converter={StaticResource InvertBool}}" />
                     </StackPanel>
-                </Border>
-
-                <!-- Advanced -->
-                <Border Grid.Row="2" Grid.Column="2" Style="{StaticResource CardStyle}" Padding="20">
-                    <StackPanel>
-                        <StackPanel Style="{StaticResource CardHeader}">
-                            <ui:FontIcon Glyph="&#xE90F;" FontSize="18" Foreground="{DynamicResource IconBlueForeground}" Margin="0,0,10,0" />
-                            <TextBlock Text="Advanced" Style="{StaticResource SectionHeaderStyle}" VerticalAlignment="Center" />
-                        </StackPanel>
-
-                        <TextBlock Text="Device ID" Style="{StaticResource FieldLabel}" />
-                        <TextBox Text="{Binding DeviceId, UpdateSourceTrigger=PropertyChanged}" ui:ControlHelper.PlaceholderText="Auto-generated if empty"
-                                 IsEnabled="{Binding IsDeviceIdLocked, Converter={StaticResource InvertBool}}" />
-
-                        <TextBlock Text="User Agent" Style="{StaticResource FieldLabel}" />
-                        <TextBox Text="{Binding UserAgent, UpdateSourceTrigger=PropertyChanged}" ui:ControlHelper.PlaceholderText="ReportMate/1.0"
-                                 IsEnabled="{Binding IsUserAgentLocked, Converter={StaticResource InvertBool}}" />
-
-                        <TextBlock Text="Proxy URL" Style="{StaticResource FieldLabel}" />
-                        <TextBox Text="{Binding ProxyUrl, UpdateSourceTrigger=PropertyChanged}" ui:ControlHelper.PlaceholderText="http://proxy.example.com:8080"
-                                 IsEnabled="{Binding IsProxyUrlLocked, Converter={StaticResource InvertBool}}" />
-
-                        <TextBlock Text="Cache Directory" Style="{StaticResource FieldLabel}" />
-                        <TextBlock x:Name="CacheDirText" Style="{StaticResource MonoValueStyle}" />
-                    </StackPanel>
-                </Border>
-            </Grid>
+                    <StackPanel x:Name="InventoryBody" Style="{StaticResource SectionBody}" Visibility="Collapsed" />
+                    <StackPanel x:Name="SecurityBody" Style="{StaticResource SectionBody}" Visibility="Collapsed" />
+                    <StackPanel x:Name="KioskBody" Style="{StaticResource SectionBody}" Visibility="Collapsed" />
+                    <StackPanel x:Name="MaintenanceBody" Style="{StaticResource SectionBody}" Visibility="Collapsed" />
+                </Grid>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </Page>
