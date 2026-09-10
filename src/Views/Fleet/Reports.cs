@@ -186,14 +186,29 @@ public sealed class ReportPage : FleetPage
             if (source.Count == 0) continue;
 
             var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            // Two spellings of one value merge, so the label has to be chosen rather
+            // than inherited from whichever row happened to arrive first: 1,046
+            // printers report RICOH and 8 report Ricoh, and the bar should not be
+            // named after the eight.
+            var spellings = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
             var answered = 0;
             foreach (var row in source)
             {
                 var values = field.ReadAll(row).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 if (values.Count > 0) answered++;
                 foreach (var value in values)
+                {
                     counts[value] = counts.GetValueOrDefault(value) + 1;
+                    if (!spellings.TryGetValue(value, out var seen))
+                        spellings[value] = seen = new Dictionary<string, int>(StringComparer.Ordinal);
+                    seen[value] = seen.GetValueOrDefault(value) + 1;
+                }
             }
+
+            string Label(string value) =>
+                spellings.TryGetValue(value, out var seen)
+                    ? seen.OrderByDescending(kv => kv.Value).ThenBy(kv => kv.Key, StringComparer.Ordinal).First().Key
+                    : value;
 
             // Rows that answered nothing get a bucket of their own, so the bars sum to
             // the population and a field the other platform does not report shows up
@@ -210,7 +225,7 @@ public sealed class ReportPage : FleetPage
             var total = counts.Values.Sum();
             var body = new StackPanel();
             foreach (var (name, count) in counts.OrderByDescending(kv => kv.Value).Take(6))
-                body.Children.Add(Charts.Bar(name, count, total, Tone.Info));
+                body.Children.Add(Charts.Bar(Label(name), count, total, Tone.Info));
 
             if (counts.Count > 6)
                 body.Children.Add(Ui.Caption($"and {counts.Count - 6:N0} more"));

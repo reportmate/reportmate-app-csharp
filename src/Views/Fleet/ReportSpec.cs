@@ -127,6 +127,12 @@ public sealed record ReportSpec(
                 new("Graphics", "graphics.name"),
                 new("Memory", "memory.totalPhysical|memory.physical_memory", ValueFormat.Bytes),
                 new("Storage type", "storage[].type"),
+                // Displays are charted from the hardware module, not peripherals:
+                // this is the only copy the Macs populate. Resolution and type both
+                // read on either client; the manufacturer and model of a display
+                // are Windows-mostly, so they are not charted.
+                new("Display", "displays[].resolution"),
+                new("Display type", "displays[].type"),
             ],
             [
                 new("Device", new("Device", "deviceName"), Star: true),
@@ -136,6 +142,7 @@ public sealed record ReportSpec(
                 new("Processor", new("Processor", "processor.name"), 200),
                 new("Memory", new("Memory", "memory.totalPhysical|memory.physical_memory", ValueFormat.Bytes), 100),
                 new("Graphics", new("Graphics", "graphics.name"), 170),
+                new("Displays", new("Displays", "displays[].name"), 190),
                 new("Architecture", new("Architecture", "", Derive: Hardware.Normalize), 150),
             ]),
 
@@ -313,8 +320,17 @@ public sealed record ReportSpec(
                 new("Printer", "printers[].manufacturer"),
                 new("USB vendor", "usbDevices[].vendor"),
                 new("Audio", "audioDevices[].manufacturer"),
-                new("Display", "displayDevices[].manufacturer"),
-                new("Camera", "cameras[].manufacturer"),
+                // No display distribution here. peripherals.displayDevices is empty
+                // on all 488 Macs, so a chart over it counts 282 Windows devices
+                // while the card says it covers the fleet. The displays those Macs
+                // do have are in the hardware module, which is where this report's
+                // display charts live. The web's fleet peripherals page reads this
+                // same field and shows every Mac with no displays at all.
+                // cameras[].name, not manufacturer: the manufacturer is null on all
+                // 488 Macs, so charting it counted 348 Windows devices under a card
+                // that said it covered the fleet. The name reads on both and is 74
+                // distinct values, not hundreds.
+                new("Camera", "cameras[].name"),
             ],
             [
                 new("Device", new("Device", "deviceName"), Star: true),
@@ -322,7 +338,7 @@ public sealed record ReportSpec(
                 new("Printers", new("Printers", "printers[].name"), 200),
                 new("USB", new("USB", "usbDevices[].name"), 220),
                 new("Audio", new("Audio", "audioDevices[].name"), 180),
-                new("Displays", new("Displays", "displayDevices[].friendlyName"), 170),
+                new("Cameras", new("Cameras", "cameras[].name"), 170),
             ]),
     };
 
