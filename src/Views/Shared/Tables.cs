@@ -157,8 +157,10 @@ public static class Table
     private static DataTemplate PillTemplate(Col col)
     {
         var border = new FrameworkElementFactory(typeof(Border));
-        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(999));
-        border.SetValue(Border.PaddingProperty, new Thickness(9, 2, 9, 2));
+        // Matches PillStyle: a rounded rectangle rather than a capsule, so a status
+        // in a table column and one outside it are the same shape.
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(5));
+        border.SetValue(Border.PaddingProperty, new Thickness(9, 3, 9, 3));
         border.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Left);
         border.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
         border.SetBinding(Border.BackgroundProperty, new Binding(col.TonePath!) { Converter = ToneBg });

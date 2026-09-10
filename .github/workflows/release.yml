@@ -1,0 +1,83 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9].[0-9][0-9][0-9][0-9]*'
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # The module data shapes come from the client repository.
+          submodules: recursive
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: preview
+
+      - name: Install cimipkg
+        shell: pwsh
+        run: |
+          $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/windowsadmins/cimian-pkg/releases/latest' `
+            -Headers @{ 'User-Agent' = 'reportmate-app-csharp' }
+          $asset = $release.assets | Where-Object { $_.name -like '*win-x64*.zip' } | Select-Object -First 1
+          if (-not $asset) { throw "cimian-pkg $($release.tag_name) has no win-x64 asset" }
+          $zip = Join-Path $env:RUNNER_TEMP $asset.name
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip -UseBasicParsing
+          $dir = Join-Path $env:RUNNER_TEMP 'cimipkg'
+          Expand-Archive -Path $zip -DestinationPath $dir -Force
+          $exe = Get-ChildItem -Path $dir -Filter 'cimipkg.exe' -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "No cimipkg.exe inside $($asset.name)" }
+          Add-Content -Path $env:GITHUB_PATH -Value $exe.DirectoryName
+          Write-Host "cimipkg $($release.tag_name) from $($asset.name)"
+
+      - name: Test
+        run: dotnet test tests\ReportMate.App.Tests\ReportMate.App.Tests.csproj --configuration Release --logger "console;verbosity=normal"
+
+      - name: Build (unsigned)
+        shell: pwsh
+        run: |
+          # The tag is the version, so the artifacts and the release cannot disagree.
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          .\build.ps1 -Configuration Release -Version $version
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $artifacts = Get-ChildItem -Path release -Filter '*.msi' | ForEach-Object { $_.FullName }
+          if ($artifacts.Count -eq 0) { throw 'No MSI was produced' }
+
+          $runUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          $notes = @"
+          ## ReportMate for Windows $tag
+
+          The dashboard installs to ``C:\Program Files\ReportMate`` as ``reportmate.exe``,
+          alongside the ``reportmateutil`` CLI, with that directory added to the machine
+          PATH. One package per architecture; both carry a native build of the
+          dashboard and of the CLI.
+
+          Built by $runUrl from commit ``$env:GITHUB_SHA``.
+
+          ## Signing
+
+          These artifacts are **unsigned**. They are signed and repacked by the private
+          deployment pipeline, which fetches this release by tag. An unsigned build will
+          not run where policy requires a signature.
+          "@
+
+          gh release create $tag @artifacts --title "ReportMate for Windows $tag" --notes $notes
