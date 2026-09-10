@@ -41,6 +41,10 @@ public static class Management
             // An enrolled device carrying some other method still enrolled somehow,
             // and "N/A" is the string the clients send for no method at all.
             _ when status == "Enrolled" && type is not ("" or "N/A" or "Unknown") => "Manual",
+            // A device that is not enrolled has no bootstrap method, and that is an
+            // answer rather than a gap: saying so beats dropping it into Unknown
+            // beside the rows we genuinely cannot account for.
+            _ when status is "Not Enrolled" or "Unenrolled" => "Not Enrolled",
             _ => null,
         };
     }

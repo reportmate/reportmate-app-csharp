@@ -56,8 +56,15 @@ public class ManagementTests
             {"enrollmentType":"Device Enrollment","enrollmentStatus":"Enrolled"}
             """));
 
+    [Fact]
+    public void ANotEnrolledDevice_SaysSo_RatherThanUnknown() =>
+        // It has no bootstrap method, which is an answer; the Unknown bucket is for
+        // rows we cannot account for.
+        Assert.Equal("Not Enrolled", Method("""
+            {"enrollmentType":"N/A","enrollmentStatus":"Not Enrolled"}
+            """));
+
     [Theory]
-    [InlineData("""{"enrollmentType":"N/A","enrollmentStatus":"Not Enrolled"}""")]
     [InlineData("""{"enrollmentType":"N/A","enrollmentStatus":"Enrolled"}""")]
     [InlineData("""{"enrollmentStatus":"Enrolled"}""")]
     [InlineData("{}")]
