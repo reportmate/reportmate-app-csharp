@@ -27,22 +27,38 @@ public enum ValueFormat
 /// </param>
 public sealed record Field(string Label, string Path, ValueFormat Format = ValueFormat.Text, string? Platform = null)
 {
-    /// <summary>The value as a display string, or empty when the path is absent.</summary>
-    public string Read(JsonElement row) => Json.ReadOne(row, Path) is { } v ? Format switch
+    /// <summary>
+    /// The paths to try, in order. The two clients name the same measurement
+    /// differently -- physical memory is memory.totalPhysical on Windows and
+    /// memory.physical_memory on a Mac -- so a field that reads only one of them
+    /// silently covers one platform while the page says it covers the fleet.
+    /// </summary>
+    private string[] Paths => Path.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>The value as a display string, or empty when no path resolves.</summary>
+    public string Read(JsonElement row) => FirstValue(row) is { } v ? Format switch
     {
         ValueFormat.Bytes => Json.Bytes(v),
         ValueFormat.Megabytes => Json.Megabytes(v),
         _ => Json.Text(v),
     } : "";
 
+    private JsonElement? FirstValue(JsonElement row)
+    {
+        foreach (var path in Paths)
+            if (Json.ReadOne(row, path) is { } v) return v;
+        return null;
+    }
+
     /// <summary>Every value at this path — one for a scalar, many across an array.</summary>
     public IEnumerable<string> ReadAll(JsonElement row) =>
-        Json.ReadMany(row, Path).Select(v => Format switch
+        Paths.Select(p => Json.ReadMany(row, p).ToList()).FirstOrDefault(v => v.Count > 0)
+            ?.Select(v => Format switch
         {
             ValueFormat.Bytes => Json.Bytes(v),
             ValueFormat.Megabytes => Json.Megabytes(v),
             _ => Json.Text(v),
-        }).Where(s => !string.IsNullOrWhiteSpace(s));
+        }).Where(s => !string.IsNullOrWhiteSpace(s)) ?? [];
 }
 
 /// <summary>
@@ -93,7 +109,7 @@ public sealed record ReportSpec(
                 new("Architecture", "architecture"),
                 new("Processor", "processor.name"),
                 new("Graphics", "graphics.name"),
-                new("Memory", "memory.totalPhysical", ValueFormat.Bytes),
+                new("Memory", "memory.totalPhysical|memory.physical_memory", ValueFormat.Bytes),
                 new("Storage type", "storage[].type"),
             ],
             [
@@ -102,7 +118,7 @@ public sealed record ReportSpec(
                 new("Asset Tag", new("Asset Tag", "assetTag"), 110, Mono: true),
                 new("Model", new("Model", "model"), 200),
                 new("Processor", new("Processor", "processor.name"), 200),
-                new("Memory", new("Memory", "memory.totalPhysical", ValueFormat.Bytes), 100),
+                new("Memory", new("Memory", "memory.totalPhysical|memory.physical_memory", ValueFormat.Bytes), 100),
                 new("Graphics", new("Graphics", "graphics.name"), 170),
                 new("Architecture", new("Architecture", "architecture"), 150),
             ]),
