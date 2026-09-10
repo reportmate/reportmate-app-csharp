@@ -12,19 +12,23 @@ namespace ReportMate.App.Views.Fleet;
 /// The fleet reports, in the order the web app's Reports menu lists them. The Mac
 /// client uses the same ids and order so the two apps stay tab for tab identical.
 /// </summary>
-public sealed record ReportArea(string Id, string Title, string Subtitle, Accent Accent)
+/// <param name="Glyph">
+/// Segoe MDL2 Assets codepoint for the tab and card, chosen to read as the web's
+/// icon for the same report does.
+/// </param>
+public sealed record ReportArea(string Id, string Title, string Subtitle, Accent Accent, string Glyph)
 {
     public static readonly IReadOnlyList<ReportArea> All =
     [
-        new("installs", "Installs", "Managed software across the fleet", Accent.Emerald),
-        new("applications", "Applications", "Installed versions and usage", Accent.Blue),
-        new("system", "System", "Operating systems and updates", Accent.Purple),
-        new("management", "Management", "Enrolment and policy", Accent.Yellow),
-        new("identity", "Identity", "Accounts, groups and sign-in", Accent.Indigo),
-        new("hardware", "Hardware", "Models, memory and storage", Accent.Orange),
-        new("peripherals", "Peripherals", "Printers, displays and devices", Accent.Pink),
-        new("security", "Security", "Protection status and findings", Accent.Red),
-        new("network", "Network", "Connectivity and addressing", Accent.Teal),
+        new("installs", "Installs", "Managed software across the fleet", Accent.Emerald, ""),
+        new("applications", "Applications", "Installed versions and usage", Accent.Blue, ""),
+        new("system", "System", "Operating systems and updates", Accent.Purple, ""),
+        new("management", "Management", "Enrolment and policy", Accent.Yellow, ""),
+        new("identity", "Identity", "Accounts, groups and sign-in", Accent.Indigo, ""),
+        new("hardware", "Hardware", "Models, memory and storage", Accent.Orange, ""),
+        new("peripherals", "Peripherals", "Printers, displays and devices", Accent.Pink, ""),
+        new("security", "Security", "Protection status and findings", Accent.Red, ""),
+        new("network", "Network", "Connectivity and addressing", Accent.Teal, ""),
     ];
 
     public static ReportArea? ById(string id) =>
@@ -47,7 +51,7 @@ public sealed class ReportsPage : FleetPage
         // their own cards here rather than being reachable only by a link.
         var areas = ReportArea.All.Append(
             new ReportArea("applications/coverage", "Usage Coverage",
-                "Which devices report application usage", Accent.Emerald));
+                "Which devices report application usage", Accent.Emerald, ""));
         foreach (var area in areas)
         {
             var body = new StackPanel();
@@ -105,6 +109,11 @@ public sealed class ReportPage : FleetPage
         }
 
         var loaded = result.Data!;
+
+        // The toolbar's platform scope, applied before anything is counted so the
+        // charts, the table and the caption all describe the same population.
+        if (PlatformFilter.Current != PlatformScope.All)
+            loaded = loaded.Where(r => PlatformFilter.Includes(PlatformField.Read(r))).ToList();
 
         var rows = ApplyLinkFilters(spec, loaded);
         var capped = spec.Limit is { } cap && loaded.Count >= cap;
@@ -172,13 +181,22 @@ public sealed class ReportPage : FleetPage
     }
 
     /// <summary>
+    /// Where a row says which platform it came from. The modules disagree: most
+    /// carry "platform", the network rows call it "operatingSystem" and the hardware
+    /// rows "osName". Reading only the first leaves those two reports unable to
+    /// answer the question at all, so a platform filter would empty them.
+    /// </summary>
+    private static readonly Field PlatformField =
+        new("platform", "platform|operatingSystem|osName");
+
+    /// <summary>
     /// The widget row: how the fleet splits across each dimension the report charts.
     /// A dimension every device answers identically says nothing, so it is dropped.
     /// </summary>
     private static UIElement? BuildDistributions(ReportSpec spec, List<JsonElement> rows, string? coverage = null)
     {
         var cards = new List<UIElement>();
-        var platformField = new Field("platform", "platform");
+        var platformField = PlatformField;
         foreach (var field in spec.Distributions)
         {
             // A field that only exists on one platform is counted over that

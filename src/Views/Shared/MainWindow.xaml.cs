@@ -1,6 +1,7 @@
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media.Imaging;
 using ReportMate.App.Views.Device;
 using ReportMate.App.Services;
@@ -24,9 +25,15 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        var icon = Path.Combine(AppContext.BaseDirectory, "Assets", "ReportMate.png");
-        if (File.Exists(icon)) AppIcon.Source = new BitmapImage(new Uri(icon));
-        else AppIcon.Visibility = Visibility.Collapsed;
+
+        // The scope belongs to the window, so a page opened after it was set opens
+        // already narrowed, and pages already built are rebuilt to match.
+        PlatformFilter.Changed += () =>
+        {
+            SyncPlatformToggle();
+            Navigate(_current, force: true);
+        };
+        SyncPlatformToggle();
 
         ReportsPage.ReportChosen += id =>
             NavigateTo(id == "applications/coverage" ? "coverage" : "report:" + id);
@@ -52,8 +59,11 @@ public partial class MainWindow : Window
         AddTab("devices", "Devices", "");
         AddTab("events", "Events", "");
 
+        // The reports were the tabs without an icon: they passed none and so read as
+        // a run of bare words beside the three that had one, where the web and the
+        // Mac client give every report its own.
         if (inline)
-            foreach (var area in ReportArea.All) AddTab("report:" + area.Id, area.Title, null);
+            foreach (var area in ReportArea.All) AddTab("report:" + area.Id, area.Title, area.Glyph);
         else
             AddTab("reports", "Reports", "");
 
@@ -104,8 +114,11 @@ public partial class MainWindow : Window
         if (sender is RadioButton { Tag: string tag }) Navigate(tag);
     }
 
-    private void Navigate(string tag)
+    private void Navigate(string tag, bool force = false)
     {
+        // Pages are cached, so a change to what they should be showing has to empty
+        // the cache or the change is invisible until the app restarts.
+        if (force) _pages.Clear();
         _current = tag;
         ContentFrame.Navigate(GetOrCreatePage(tag));
     }
@@ -177,7 +190,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>The link a page about to be shown should apply, if any.</summary>
-    public static DeepLink? PendingLink { get; private set; }
+    public static DeepLink? PendingLink { get; set; }
 
     /// <summary>Taken by the page that consumes it, so it applies once and not again.</summary>
     public static DeepLink? TakePendingLink()
@@ -226,5 +239,115 @@ public partial class MainWindow : Window
 
         _pages[tag] = page;
         return page;
+    }
+
+    // ── Platform scope ──────────────────────────────────────────────────
+
+    private void OnPlatformToggled(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton { Tag: string tag }) return;
+        PlatformFilter.Toggle(tag == "Mac" ? PlatformScope.Mac : PlatformScope.Windows);
+    }
+
+    private void SyncPlatformToggle()
+    {
+        PlatformMac.IsChecked = PlatformFilter.Current == PlatformScope.Mac;
+        PlatformWindows.IsChecked = PlatformFilter.Current == PlatformScope.Windows;
+    }
+
+    // ── Search ──────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// The device list, fetched once and reused for every keystroke. Searching is a
+    /// per-character operation and the list is the same list the Devices page just
+    /// loaded, so asking the API again on each letter would be both slow and rude.
+    /// </summary>
+    private List<FleetDevice>? _searchable;
+
+    private async void OnSearchTextChanged(
+        ModernWpf.Controls.AutoSuggestBox sender, ModernWpf.Controls.AutoSuggestBoxTextChangedEventArgs args)
+    {
+        // Only a typed change should search; setting the text in code should not.
+        if (args.Reason != ModernWpf.Controls.AutoSuggestionBoxTextChangeReason.UserInput) return;
+
+        var query = sender.Text?.Trim();
+        if (string.IsNullOrEmpty(query) || query.Length < 2)
+        {
+            sender.ItemsSource = null;
+            return;
+        }
+
+        if (_searchable is null)
+        {
+            var result = await FleetApiClient.Instance.GetDevicesAsync();
+            if (!result.Ok) return;
+            _searchable = result.Data!.Devices;
+        }
+
+        // The scope applies here too: searching while filtered to Windows should not
+        // offer a Mac.
+        sender.ItemsSource = _searchable
+            .Where(d => PlatformFilter.Includes(d.Platform ?? d.OsName))
+            .Select(d => DeviceHit.For(d, query))
+            .Where(h => h is not null)
+            .Take(8)
+            .ToList();
+    }
+
+    private void OnSearchSuggestionChosen(
+        ModernWpf.Controls.AutoSuggestBox sender, ModernWpf.Controls.AutoSuggestBoxSuggestionChosenEventArgs args)
+    {
+        if (args.SelectedItem is DeviceHit hit) OpenDevice(hit.Serial);
+    }
+
+    private void OnSearchSubmitted(
+        ModernWpf.Controls.AutoSuggestBox sender, ModernWpf.Controls.AutoSuggestBoxQuerySubmittedEventArgs args)
+    {
+        // Enter on a highlighted suggestion opens it; Enter on free text opens the
+        // single match if there is exactly one, and otherwise leaves the list up
+        // rather than guessing which device was meant.
+        if (args.ChosenSuggestion is DeviceHit chosen) { OpenDevice(chosen.Serial); return; }
+        if (sender.ItemsSource is List<DeviceHit> { Count: 1 } only) OpenDevice(only[0].Serial);
+    }
+
+    /// <summary>
+    /// Show the chosen device. The device page renders this machine's own report
+    /// from the local cache and cannot render another machine's, so a search result
+    /// opens the Devices list narrowed to that serial rather than a page that would
+    /// show the wrong device's data under the right device's name.
+    /// </summary>
+    private void OpenDevice(string serial)
+    {
+        SearchBox.Text = "";
+        SearchBox.ItemsSource = null;
+        PendingLink = DeepLink.For("devices", null, ("search", serial));
+        Navigate("devices", force: true);
+        SyncChecked();
+    }
+}
+
+/// <summary>
+/// One search result, with the matched run of text kept apart from the rest so the
+/// template can weight it without a converter picking the string back apart.
+/// </summary>
+public sealed record DeviceHit(string Serial, string Before, string Match, string After, string Detail)
+{
+    public static DeviceHit? For(FleetDevice device, string query)
+    {
+        // Name first, then the identifiers, so a device matched by name shows its
+        // name highlighted rather than an incidental hit in its serial.
+        foreach (var field in new[] { device.Name, device.SerialNumber, device.AssetTag, device.Hostname })
+        {
+            if (string.IsNullOrWhiteSpace(field)) continue;
+            var at = field.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+            if (at < 0) continue;
+
+            var detail = ReferenceEquals(field, device.Name)
+                ? device.SerialNumber
+                : $"{device.Name} · {device.SerialNumber}";
+            return new DeviceHit(device.SerialNumber,
+                field[..at], field.Substring(at, query.Length), field[(at + query.Length)..], detail);
+        }
+        return null;
     }
 }

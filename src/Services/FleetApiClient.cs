@@ -201,6 +201,12 @@ public sealed class FleetDevice
     public string DeviceId { get; set; } = "";
     public string SerialNumber { get; set; } = "";
     public string Name { get; set; } = "";
+
+    // Both are sent at the top level of a device row and both are things people
+    // search by, which is what the toolbar's placeholder promises.
+    public string? AssetTag { get; set; }
+    public string? Hostname { get; set; }
+
     public string? Platform { get; set; }
     public string? OsName { get; set; }
     public string? OsVersion { get; set; }
@@ -236,6 +242,7 @@ public sealed class InventorySummary
     public string? Location { get; set; }
     public string? Area { get; set; }
     public string? Fleet { get; set; }
+    public string? AssetTag { get; set; }
 }
 
 public sealed class SystemSummary

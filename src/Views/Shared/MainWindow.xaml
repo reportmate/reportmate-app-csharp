@@ -16,29 +16,57 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Chrome: centred segmented navigation, settings gear on the right. -->
+        <!-- Chrome, in the web header's order: platform toggle, search, tabs, settings. -->
         <Border Grid.Row="0" Background="{DynamicResource HeaderBackgroundBrush}"
                 BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,0,0,1" Padding="12,7">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" MinWidth="140" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Image x:Name="AppIcon" Width="20" Height="20" Margin="4,0,8,0" />
-                    <TextBlock Text="ReportMate" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" />
-                </StackPanel>
+                <!-- Platform scope. Choosing the platform already showing goes back
+                     to the whole fleet, as the web's toggle does. -->
+                <Border Grid.Column="0" CornerRadius="7" Padding="2" VerticalAlignment="Center"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                        BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
+                    <StackPanel Orientation="Horizontal">
+                        <ToggleButton x:Name="PlatformMac" ToolTip="Show only Macs"
+                                      Style="{StaticResource PlatformToggleStyle}"
+                                      Click="OnPlatformToggled" Tag="Mac">
+                            <ui:FontIcon Glyph="&#xE770;" FontSize="14" />
+                        </ToggleButton>
+                        <ToggleButton x:Name="PlatformWindows" ToolTip="Show only Windows devices"
+                                      Style="{StaticResource PlatformToggleStyle}"
+                                      Click="OnPlatformToggled" Tag="Windows">
+                            <ui:FontIcon Glyph="&#xE977;" FontSize="14" />
+                        </ToggleButton>
+                    </StackPanel>
+                </Border>
 
-                <Border Grid.Column="1" CornerRadius="9"
+                <!-- Search, centred in the space the toggle and tabs leave. -->
+                <Grid Grid.Column="1" MaxWidth="420" HorizontalAlignment="Center"
+                      VerticalAlignment="Center" Margin="12,0"
+                      shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                    <ui:AutoSuggestBox x:Name="SearchBox"
+                                       PlaceholderText="Search by name, serial, asset or hostname"
+                                       QuerySubmitted="OnSearchSubmitted"
+                                       TextChanged="OnSearchTextChanged"
+                                       SuggestionChosen="OnSearchSuggestionChosen"
+                                       ItemTemplate="{StaticResource DeviceSuggestionTemplate}" />
+                </Grid>
+
+                <Border Grid.Column="2" CornerRadius="9" VerticalAlignment="Center"
                         shell:WindowChrome.IsHitTestVisibleInChrome="True"
                         BorderBrush="{DynamicResource CardBorderBrush}"
                         BorderThickness="1" Padding="2">
                     <StackPanel Orientation="Horizontal" x:Name="TabBar" />
                 </Border>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,140,0">
+                <StackPanel Grid.Column="3" Orientation="Horizontal"
+                            VerticalAlignment="Center" Margin="8,0,140,0">
                     <RadioButton x:Name="TabSettings" ToolTip="Settings"
                                  shell:WindowChrome.IsHitTestVisibleInChrome="True"
                                  Tag="Settings" GroupName="MainTabs" Checked="OnTabChecked"
