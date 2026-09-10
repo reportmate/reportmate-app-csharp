@@ -231,7 +231,11 @@ public sealed record ReportSpec(
             [
                 new("Domain joined", "directoryServices.activeDirectory.isDomainJoined"),
                 new("Entra joined", "directoryServices.azureAd.joined"),
-                new("Workgroup", "directoryServices.workgroup"),
+                // Windows-only because macOS has no workgroup at all, not because
+                // the Macs answer no: the field is null on all 488 of them. The
+                // domain and Entra fields above are deliberately left fleet-wide --
+                // a Mac can be bound or joined, so a false there is an answer.
+                new("Workgroup", "directoryServices.workgroup", Platform: "Windows"),
             ],
             [
                 new("Device", new("Device", "deviceName"), Star: true),
