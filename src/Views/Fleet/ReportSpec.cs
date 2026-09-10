@@ -106,10 +106,42 @@ public sealed record ReportSpec(
     IReadOnlyList<ReportColumn> Columns,
     string RowNoun = "devices",
     int? Limit = null,
-    IReadOnlyList<LinkFilter>? LinkFilters = null)
+    IReadOnlyList<LinkFilter>? LinkFilters = null,
+    // Set when the flat module endpoint cannot serve the fleet and a per-device
+    // payload has to be flattened instead.
+    string? Endpoint = null,
+    Func<JsonDocument, IReadOnlySet<string>, (JsonDocument Owner, List<JsonElement> Rows)>? Flatten = null)
 {
     /// <summary>The link keys this report narrows by, empty when it takes none.</summary>
     public IReadOnlyList<LinkFilter> Filters => LinkFilters ?? [];
+
+    /// <summary>
+    /// The top-level property names this report can read, for a flattener deciding
+    /// what to carry across. The installs payload holds 29 fields per item and the
+    /// report shows ten of them; copying the rest into the flattened document costs
+    /// memory for data nothing can display.
+    /// </summary>
+    public IReadOnlySet<string> ReferencedProperties
+    {
+        get
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            void Add(string path)
+            {
+                foreach (var alt in path.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    var head = alt.Split('.')[0];
+                    if (head.EndsWith("[]", StringComparison.Ordinal)) head = head[..^2];
+                    if (head.Length > 0) names.Add(head);
+                }
+            }
+
+            foreach (var d in Distributions) Add(d.Path);
+            foreach (var c in Columns) Add(c.Field.Path);
+            foreach (var f in Filters) Add(f.Path);
+            return names;
+        }
+    }
 
     public static ReportSpec? For(string module) => All.GetValueOrDefault(module);
 
@@ -299,7 +331,9 @@ public sealed record ReportSpec(
                 new("Status", "currentStatus"),
                 new("Item", "itemName"),
                 new("Catalog", "catalog"),
-                new("Platform", "platform"),
+                new("Category", "category"),
+                // No platform distribution: only Cimian reports managed items, so
+                // every row here is a Windows row and the chart was one bar.
             ],
             [
                 new("Item", new("Item", "itemName"), Star: true),
@@ -308,7 +342,9 @@ public sealed record ReportSpec(
                 new("Latest", new("Latest", "latestVersion"), 150),
                 new("Device", new("Device", "deviceName"), 190),
                 new("Serial", new("Serial", "serialNumber"), 150, Mono: true),
-            ], RowNoun: "managed items", Limit: 5000, LinkFilters:
+            ], RowNoun: "managed items",
+            Endpoint: Fleet.Installs.Endpoint, Flatten: Fleet.Installs.Flatten,
+            LinkFilters:
             [
                 new("filter", "currentStatus"),
                 new("items", "itemName", MultiValue: true),

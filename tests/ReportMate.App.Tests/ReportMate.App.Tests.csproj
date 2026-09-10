@@ -23,6 +23,7 @@
     <Compile Include="..\..\src\Views\Fleet\Management.cs" Link="Management.cs" />
     <Compile Include="..\..\src\Views\Fleet\Hardware.cs" Link="Hardware.cs" />
     <Compile Include="..\..\src\Views\Fleet\Network.cs" Link="Network.cs" />
+    <Compile Include="..\..\src\Views\Fleet\Installs.cs" Link="Installs.cs" />
     <!-- The module models reference each other, so they come in as the one set. -->
     <Compile Include="..\..\client\src\Models\Modules\*.cs" Link="Models\%(Filename)%(Extension)" />
   </ItemGroup>
