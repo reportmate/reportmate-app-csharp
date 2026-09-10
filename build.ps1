@@ -68,13 +68,6 @@ Copy-Item $appExe.FullName (Join-Path $payload 'reportmate.exe') -Force
 # The CLI is a released binary from its own repository. Taking it from the release
 # rather than building or vendoring it means this package ships exactly what that
 # repository published, and the version is visible in the build log.
-$releaseApi = if ($CliTag -eq 'latest') {
-    'https://api.github.com/repos/reportmate/reportmate-cli/releases/latest'
-} else {
-    "https://api.github.com/repos/reportmate/reportmate-cli/releases/tags/$CliTag"
-}
-Write-Host "Fetching the reportmate CLI ($CliTag)"
-$release = Invoke-RestMethod -Uri $releaseApi -Headers @{ 'User-Agent' = 'reportmate-app-csharp' }
 # The CLI is being renamed from reportmate to reportmateutil, and its release assets
 # with it. Accept either name so a build works on both sides of that change rather
 # than breaking on whichever release it happens to meet.
@@ -82,13 +75,38 @@ $assetNames = @(
     'reportmateutil-x86_64-pc-windows-msvc.tar.gz',
     'reportmate-x86_64-pc-windows-msvc.tar.gz'
 )
-$asset = $null
-foreach ($name in $assetNames) {
-    $asset = $release.assets | Where-Object { $_.name -eq $name } | Select-Object -First 1
+$headers = @{ 'User-Agent' = 'reportmate-app-csharp' }
+
+Write-Host "Fetching the reportmate CLI ($CliTag)"
+# Built with += so a response that is already a list is flattened into one release
+# per element. Wrapping the call in @() instead leaves a single element holding the
+# whole array, and every property read off it then comes back as an array.
+$candidates = @()
+if ($CliTag -ne 'latest') {
+    $candidates += Invoke-RestMethod -Headers $headers `
+        -Uri "https://api.github.com/repos/reportmate/reportmate-cli/releases/tags/$CliTag"
+} else {
+    # Not just the latest release: a release is published before its assets finish
+    # uploading, so "latest" can name a release whose Windows asset does not exist
+    # yet. Walking back to the newest release that actually has one turns a few
+    # minutes of broken builds into a build that takes the previous version.
+    $candidates += Invoke-RestMethod -Headers $headers `
+        -Uri 'https://api.github.com/repos/reportmate/reportmate-cli/releases?per_page=10'
+}
+
+$release = $null; $asset = $null
+foreach ($candidate in $candidates) {
+    foreach ($name in $assetNames) {
+        $asset = $candidate.assets | Where-Object { $_.name -eq $name } | Select-Object -First 1
+        if ($asset) { $release = $candidate; break }
+    }
     if ($asset) { break }
 }
 if (-not $asset) {
-    throw "reportmate-cli release $($release.tag_name) has none of: $($assetNames -join ', ')"
+    throw "No reportmate-cli release carries any of: $($assetNames -join ', ')"
+}
+if ($CliTag -eq 'latest' -and $candidates[0].tag_name -ne $release.tag_name) {
+    Write-Host ("  {0} has no Windows asset yet; using {1}" -f $candidates[0].tag_name, $release.tag_name)
 }
 
 $tarball = Join-Path $env:TEMP $asset.name
