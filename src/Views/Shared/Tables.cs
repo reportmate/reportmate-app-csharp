@@ -85,9 +85,33 @@ public static class Table
     private static readonly ToneBrushConverter ToneFg = new() { Foreground = true };
     private static readonly PercentBrushConverter PercentBrush = new();
 
+    /// <summary>
+    /// Every fleet page scrolls as a whole, and a DataGrid inside a vertical
+    /// ScrollViewer is measured with infinite height. That silently defeats row
+    /// virtualization -- WPF builds a container for every row rather than for the
+    /// visible ones -- so the cost of a table is its whole row count, not its
+    /// viewport. At five thousand rows that was merely slow; at the installs
+    /// report's 120,496 it took 14.7 GB and stopped responding.
+    ///
+    /// Bounding the height is what restores virtualization. The grid scrolls
+    /// internally past that point, which is the same behaviour a reader already
+    /// expects from a long table.
+    /// </summary>
+    private const double MaxGridHeight = 720;
+
     public static DataGrid Build(IEnumerable rows, params Col[] columns)
     {
-        var grid = new DataGrid { Style = (Style)Ui.Res("GridStyle"), ItemsSource = rows };
+        var grid = new DataGrid
+        {
+            Style = (Style)Ui.Res("GridStyle"),
+            ItemsSource = rows,
+            MaxHeight = MaxGridHeight,
+            EnableRowVirtualization = true,
+            EnableColumnVirtualization = true,
+        };
+        ScrollViewer.SetCanContentScroll(grid, true);
+        VirtualizingPanel.SetIsVirtualizing(grid, true);
+        VirtualizingPanel.SetVirtualizationMode(grid, VirtualizationMode.Recycling);
         foreach (var col in columns) grid.Columns.Add(Column(col));
         return grid;
     }
