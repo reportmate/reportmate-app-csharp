@@ -37,6 +37,14 @@ public abstract class FleetPage : Page
     protected abstract Task<UIElement> BuildAsync();
 
     /// <summary>
+    /// Title, subtitle and accent, known before any data arrives. A page that shows
+    /// only a spinner while it fetches takes its own identity off the screen, and
+    /// these pages can spend most of a minute fetching, so the heading is drawn
+    /// straight away and the body fills in underneath it.
+    /// </summary>
+    protected virtual (string Title, string Subtitle, Accent Accent)? Heading => null;
+
+    /// <summary>
     /// The link that opened this page, if it was opened by one. Taken once, so a later
     /// refresh re-renders the same filters without a link re-applying itself.
     /// </summary>
@@ -66,13 +74,19 @@ public abstract class FleetPage : Page
         }
     }
 
-    private static UIElement Loading()
+    private UIElement Loading()
     {
         var ring = new ModernWpf.Controls.ProgressRing { IsActive = true, Width = 28, Height = 28 };
-        var panel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 80, 0, 0) };
-        panel.Children.Add(ring);
-        panel.Children.Add(Ui.Caption("Loading fleet data"));
-        return panel;
+        var spinner = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 80, 0, 0) };
+        spinner.Children.Add(ring);
+        spinner.Children.Add(Ui.Caption("Loading fleet data"));
+
+        if (Heading is not (string title, string subtitle, Accent accent)) return spinner;
+
+        var page = new StackPanel();
+        page.Children.Add(Ui.TabHeader(title, subtitle, "", accent));
+        page.Children.Add(spinner);
+        return page;
     }
 
     /// <summary>
