@@ -186,9 +186,14 @@ public sealed class ReportPage : FleetPage
             if (source.Count == 0) continue;
 
             var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var answered = 0;
             foreach (var row in source)
-                foreach (var value in field.ReadAll(row).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var values = field.ReadAll(row).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                if (values.Count > 0) answered++;
+                foreach (var value in values)
                     counts[value] = counts.GetValueOrDefault(value) + 1;
+            }
 
             if (counts.Count < 2) continue;
 
@@ -201,12 +206,18 @@ public sealed class ReportPage : FleetPage
                 body.Children.Add(Ui.Caption($"and {counts.Count - 6:N0} more"));
 
             // The subtitle names the population, so a reader is never left inferring
-            // that a Windows-only figure describes the whole fleet.
+            // that a partial figure describes the whole fleet. A field that only some
+            // rows answer says so on its own, without anyone having to have noticed
+            // why -- physical memory is named differently by the two clients, and
+            // reading one name quietly turned a fleet chart into a Windows one.
+            var partial = answered < source.Count;
             var scope = field.Platform is not null
                 ? $"{counts.Count:N0} distinct across {source.Count:N0} {field.Platform} devices"
-                : coverage is null
-                    ? $"{counts.Count:N0} distinct"
-                    : $"{counts.Count:N0} distinct across {coverage}";
+                : partial
+                    ? $"{counts.Count:N0} distinct across {answered:N0} of {source.Count:N0} devices"
+                    : coverage is null
+                        ? $"{counts.Count:N0} distinct"
+                        : $"{counts.Count:N0} distinct across {coverage}";
             cards.Add(Ui.StatBlock(field.Label, scope, "", Accent.Blue, Pad(body)));
         }
 
