@@ -8,12 +8,13 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # The module models come from the client repository as a submodule.
+          # The module data shapes come from the client repository.
           submodules: recursive
 
       - name: Setup .NET SDK
@@ -22,8 +23,37 @@ jobs:
           dotnet-version: '10.0.x'
           dotnet-quality: preview
 
-      - name: Build
-        run: dotnet build src\ReportMate.App.csproj --configuration Release
+      - name: Install cimipkg
+        shell: pwsh
+        run: |
+          $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/windowsadmins/cimian-pkg/releases/latest' `
+            -Headers @{ 'User-Agent' = 'reportmate-app-csharp' }
+          $asset = $release.assets | Where-Object { $_.name -like '*win-x64*.zip' } | Select-Object -First 1
+          if (-not $asset) { throw "cimian-pkg $($release.tag_name) has no win-x64 asset" }
+          $zip = Join-Path $env:RUNNER_TEMP $asset.name
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip -UseBasicParsing
+          $dir = Join-Path $env:RUNNER_TEMP 'cimipkg'
+          Expand-Archive -Path $zip -DestinationPath $dir -Force
+          $exe = Get-ChildItem -Path $dir -Filter 'cimipkg.exe' -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "No cimipkg.exe inside $($asset.name)" }
+          Add-Content -Path $env:GITHUB_PATH -Value $exe.DirectoryName
+          Write-Host "cimipkg $($release.tag_name) from $($asset.name)"
 
       - name: Test
         run: dotnet test tests\ReportMate.App.Tests\ReportMate.App.Tests.csproj --configuration Release --logger "console;verbosity=normal"
+
+      # Packages on every push and pull request, not only on a tag. The packaging
+      # is where this project's failures have actually been -- a payload file that
+      # silently does not ship builds green -- so the payload guard inside build.ps1
+      # runs here rather than being first exercised at release time.
+      - name: Build packages (unsigned)
+        shell: pwsh
+        run: .\build.ps1 -Configuration Release
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: reportmate-app-unsigned
+          path: release\*.msi
+          if-no-files-found: error
+          retention-days: 14
