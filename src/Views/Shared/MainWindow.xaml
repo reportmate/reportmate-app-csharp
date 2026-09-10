@@ -22,14 +22,26 @@
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" MinWidth="140" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
+                <!-- The mark is the bare logo, as the web header has it: the amber
+                     rounded square belongs to the app icon, not to a 20px mark
+                     sitting on the header's own background. -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center"
+                            Margin="2,0,10,0">
+                    <Image Source="pack://application:,,,/Assets/ReportMate.png"
+                           Width="20" Height="20" Margin="0,0,8,0" />
+                    <TextBlock Text="ReportMate" FontWeight="SemiBold" FontSize="13"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+
                 <!-- Platform scope. Choosing the platform already showing goes back
                      to the whole fleet, as the web's toggle does. -->
-                <Border Grid.Column="0" CornerRadius="7" Padding="2" VerticalAlignment="Center"
+                <Border Grid.Column="1" CornerRadius="7" Padding="2" VerticalAlignment="Center"
                         shell:WindowChrome.IsHitTestVisibleInChrome="True"
                         BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
                     <StackPanel Orientation="Horizontal">
@@ -47,7 +59,7 @@
                 </Border>
 
                 <!-- Search, centred in the space the toggle and tabs leave. -->
-                <Grid Grid.Column="1" MaxWidth="420" HorizontalAlignment="Center"
+                <Grid Grid.Column="2" MaxWidth="420" HorizontalAlignment="Center"
                       VerticalAlignment="Center" Margin="12,0"
                       shell:WindowChrome.IsHitTestVisibleInChrome="True">
                     <ui:AutoSuggestBox x:Name="SearchBox"
@@ -58,14 +70,14 @@
                                        ItemTemplate="{StaticResource DeviceSuggestionTemplate}" />
                 </Grid>
 
-                <Border Grid.Column="2" CornerRadius="9" VerticalAlignment="Center"
+                <Border Grid.Column="3" CornerRadius="9" VerticalAlignment="Center"
                         shell:WindowChrome.IsHitTestVisibleInChrome="True"
                         BorderBrush="{DynamicResource CardBorderBrush}"
                         BorderThickness="1" Padding="2">
                     <StackPanel Orientation="Horizontal" x:Name="TabBar" />
                 </Border>
 
-                <StackPanel Grid.Column="3" Orientation="Horizontal"
+                <StackPanel Grid.Column="4" Orientation="Horizontal"
                             VerticalAlignment="Center" Margin="8,0,140,0">
                     <RadioButton x:Name="TabSettings" ToolTip="Settings"
                                  shell:WindowChrome.IsHitTestVisibleInChrome="True"
