@@ -198,9 +198,14 @@
             </Style>
 
             <!-- Pills -->
+            <!--
+                A rounded rectangle, not a capsule. A fully rounded pill on short text
+                reads as a squat oval, and the badges sit beside filter chips that are
+                already rounded rectangles, so the two now agree.
+            -->
             <Style x:Key="PillStyle" TargetType="Border">
-                <Setter Property="CornerRadius" Value="999" />
-                <Setter Property="Padding" Value="10,2" />
+                <Setter Property="CornerRadius" Value="5" />
+                <Setter Property="Padding" Value="9,3" />
                 <Setter Property="Background" Value="{DynamicResource PillGrayBackground}" />
                 <Setter Property="VerticalAlignment" Value="Center" />
             </Style>
