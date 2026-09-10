@@ -75,9 +75,20 @@ $releaseApi = if ($CliTag -eq 'latest') {
 }
 Write-Host "Fetching the reportmate CLI ($CliTag)"
 $release = Invoke-RestMethod -Uri $releaseApi -Headers @{ 'User-Agent' = 'reportmate-app-csharp' }
-$asset = $release.assets | Where-Object { $_.name -eq 'reportmate-x86_64-pc-windows-msvc.tar.gz' } | Select-Object -First 1
+# The CLI is being renamed from reportmate to reportmateutil, and its release assets
+# with it. Accept either name so a build works on both sides of that change rather
+# than breaking on whichever release it happens to meet.
+$assetNames = @(
+    'reportmateutil-x86_64-pc-windows-msvc.tar.gz',
+    'reportmate-x86_64-pc-windows-msvc.tar.gz'
+)
+$asset = $null
+foreach ($name in $assetNames) {
+    $asset = $release.assets | Where-Object { $_.name -eq $name } | Select-Object -First 1
+    if ($asset) { break }
+}
 if (-not $asset) {
-    throw "reportmate-cli release $($release.tag_name) has no reportmate-x86_64-pc-windows-msvc.tar.gz asset"
+    throw "reportmate-cli release $($release.tag_name) has none of: $($assetNames -join ', ')"
 }
 
 $tarball = Join-Path $env:TEMP $asset.name
@@ -88,14 +99,16 @@ New-Item -ItemType Directory -Path $extract -Force | Out-Null
 tar -xzf $tarball -C $extract
 if ($LASTEXITCODE -ne 0) { throw "Could not extract $($asset.name)" }
 
-$cli = Get-ChildItem -Path $extract -Filter 'reportmate.exe' -Recurse | Select-Object -First 1
-if (-not $cli) { throw "No reportmate.exe inside $($asset.name)" }
+$cli = Get-ChildItem -Path $extract -Recurse -Include 'reportmateutil.exe', 'reportmate.exe' |
+    Sort-Object { $_.Name -eq 'reportmateutil.exe' } -Descending | Select-Object -First 1
+if (-not $cli) { throw "No reportmateutil.exe or reportmate.exe inside $($asset.name)" }
 $cliTarget = Join-Path $payload 'reportmateutil.exe'
 if (Test-Path $cliTarget) {
     throw "Refusing to overwrite an existing payload file at $cliTarget. Two payload files differing only in case collide on Windows."
 }
 Copy-Item $cli.FullName $cliTarget -Force
-Write-Host ("Bundled reportmate CLI {0} ({1:N1} MB)" -f $release.tag_name, ($cli.Length / 1MB))
+Write-Host ("Bundled the CLI from {0} as reportmateutil.exe, taken from {1} ({2:N1} MB)" -f `
+    $release.tag_name, $asset.name, ($cli.Length / 1MB))
 
 # ── Package ─────────────────────────────────────────────────────────────
 $cimipkg = (Get-Command cimipkg -ErrorAction SilentlyContinue)?.Source
