@@ -44,7 +44,13 @@
   <!-- The payload models are the client's own: the GUI reads the JSON the runner
        writes to the cache, so it deserialises with the very classes that wrote it. -->
   <ItemGroup>
-    <Compile Include="..\Models\Modules\*.cs" Link="Models\%(Filename)%(Extension)" />
+    <!--
+      The module data shapes are owned by the runner and read here, so they are
+      taken from the client repository as a pinned submodule rather than copied.
+      A copy would drift, and this app exists to render exactly what the runner
+      writes.
+    -->
+    <Compile Include="..\client\src\Models\Modules\*.cs" Link="Models\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The tested types carry no UI dependency, so they are compiled in directly
+      rather than by referencing the WPF app, which a test project cannot do.
+    -->
+    <Compile Include="..\..\src\Services\DeepLink.cs" Link="DeepLink.cs" />
+    <Compile Include="..\..\src\Services\InstallStatus.cs" Link="InstallStatus.cs" />
+    <!-- The module models reference each other, so they come in as the one set. -->
+    <Compile Include="..\..\client\src\Models\Modules\*.cs" Link="Models\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>
