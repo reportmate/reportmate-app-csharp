@@ -174,10 +174,19 @@ public sealed class ReportPage : FleetPage
     private static UIElement? BuildDistributions(ReportSpec spec, List<JsonElement> rows, string? coverage = null)
     {
         var cards = new List<UIElement>();
+        var platformField = new Field("platform", "platform");
         foreach (var field in spec.Distributions)
         {
+            // A field that only exists on one platform is counted over that
+            // platform's devices alone. The others report it as false rather than
+            // omitting it, so including them turns "not applicable" into "off".
+            var source = field.Platform is null
+                ? rows
+                : rows.Where(r => string.Equals(platformField.Read(r), field.Platform, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (source.Count == 0) continue;
+
             var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            foreach (var row in rows)
+            foreach (var row in source)
                 foreach (var value in field.ReadAll(row).Distinct(StringComparer.OrdinalIgnoreCase))
                     counts[value] = counts.GetValueOrDefault(value) + 1;
 
@@ -191,7 +200,13 @@ public sealed class ReportPage : FleetPage
             if (counts.Count > 6)
                 body.Children.Add(Ui.Caption($"and {counts.Count - 6:N0} more"));
 
-            var scope = coverage is null ? $"{counts.Count:N0} distinct" : $"{counts.Count:N0} distinct across {coverage}";
+            // The subtitle names the population, so a reader is never left inferring
+            // that a Windows-only figure describes the whole fleet.
+            var scope = field.Platform is not null
+                ? $"{counts.Count:N0} distinct across {source.Count:N0} {field.Platform} devices"
+                : coverage is null
+                    ? $"{counts.Count:N0} distinct"
+                    : $"{counts.Count:N0} distinct across {coverage}";
             cards.Add(Ui.StatBlock(field.Label, scope, "", Accent.Blue, Pad(body)));
         }
 
