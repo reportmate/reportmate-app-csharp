@@ -1,0 +1,11 @@
+product:
+  name: ReportMateApp
+  version: {{VERSION}}
+  identifier: com.github.reportmate.app
+  developer: Windows Admins Open Source
+  description: Native Windows dashboard for ReportMate - fleet views and the report for this device.
+# The same directory the runner installs into, so one folder holds the tooling and
+# a single PATH entry serves all of it. The two packages own separate files.
+install_location: C:\Program Files\ReportMate\
+postinstall_action: none
+signing_certificate:

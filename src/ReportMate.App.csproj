@@ -8,10 +8,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <RootNamespace>ReportMate.App</RootNamespace>
-    <AssemblyName>Managed Reports Runner</AssemblyName>
-    <AssemblyTitle>Managed Reports Runner</AssemblyTitle>
-    <Product>Managed Reports Runner</Product>
-    <Description>ReportMate device report, collection runner and settings for this Windows endpoint</Description>
+    <!--
+      Named for what it is now. "Managed Reports Runner" described a local runner
+      console, which this stopped being when it became the fleet dashboard, and the
+      runner it was named after is a different executable in another repository.
+    -->
+    <AssemblyName>ReportMate</AssemblyName>
+    <AssemblyTitle>ReportMate</AssemblyTitle>
+    <Product>ReportMate</Product>
+    <Description>Native Windows dashboard for ReportMate - fleet views and the report for this device</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon Condition="Exists('Assets\ReportMate.ico')">Assets\ReportMate.ico</ApplicationIcon>
     <StartupObject>ReportMate.App.Program</StartupObject>

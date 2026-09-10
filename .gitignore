@@ -4,3 +4,5 @@ release/
 *.user
 *.suo
 .vs/
+build/pkg/payload/
+build/pkg/build/
