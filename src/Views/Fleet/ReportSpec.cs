@@ -136,8 +136,9 @@ public sealed record ReportSpec(
 
         ["security"] = new("security",
             [
-                // Every one of these but encryption is Windows-only, and the API
-                // reports them as false on a Mac rather than leaving them out.
+                // Antivirus, TPM, Secure Boot, tamper protection and Smart App
+                // Control are Windows-only, and the API reports them as false on a
+                // Mac rather than leaving them out.
                 // Counted across the whole fleet they read as failures: antivirus
                 // showed as absent on 56% of devices when it is enabled on 394 of
                 // 395 Windows machines, and TPM as missing on 56% when every
@@ -145,7 +146,11 @@ public sealed record ReportSpec(
                 new("Antivirus", "antivirusName", Platform: "Windows"),
                 new("Antivirus enabled", "antivirusEnabled", Platform: "Windows"),
                 new("Encryption", "encryptionEnabled"),
-                new("Firewall", "firewallEnabled", Platform: "Windows"),
+                // Firewall stays fleet-wide. macOS reports it for real -- eight Macs
+                // have the application firewall on -- so scoping it to Windows would
+                // hide that it is off on nearly every Mac, which is a finding rather
+                // than a field that does not apply.
+                new("Firewall", "firewallEnabled"),
                 new("TPM present", "tpmPresent", Platform: "Windows"),
                 new("Secure Boot", "secureBootEnabled", Platform: "Windows"),
                 new("Tamper protection", "tamperProtected", Platform: "Windows"),
