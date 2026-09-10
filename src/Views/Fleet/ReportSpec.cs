@@ -214,7 +214,10 @@ public sealed record ReportSpec(
                 new("Device", new("Device", "deviceName"), 190),
                 new("Serial", new("Serial", "serialNumber"), 150, Mono: true),
                 new("Architecture", new("Architecture", "architecture"), 110),
-            ], RowNoun: "installed applications", Limit: 5000, LinkFilters:
+            // 500, not 5000. This endpoint answers in about thirty milliseconds a
+            // row: 200 rows in seven seconds, 1000 in sixty-seven, and 5000 never --
+            // it times out. The report could not have loaded at the larger figure.
+            ], RowNoun: "installed applications", Limit: 500, LinkFilters:
             [
                 new("apps", "name", MultiValue: true),
                 new("publishers", "publisher", MultiValue: true),

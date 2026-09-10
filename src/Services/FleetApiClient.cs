@@ -14,7 +14,10 @@ public sealed class FleetApiClient
 {
     public static FleetApiClient Instance { get; } = new();
 
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(45) };
+    // The module endpoints are slow in proportion to the rows asked for -- the
+    // applications one serves roughly thirty milliseconds a row -- so a page that
+    // asks for a few hundred rows can legitimately take half a minute.
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(90) };
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
