@@ -53,6 +53,12 @@ jobs:
       # runs here rather than being first exercised at release time.
       - name: Build packages (unsigned)
         shell: pwsh
+        env:
+          # build.ps1 resolves the CLI release through the GitHub API. The
+          # unauthenticated limit is per source IP and hosted runners share
+          # theirs, so without this the build fails whenever somebody else
+          # on the same runner IP has spent the anonymous budget.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: .\build.ps1 -Configuration Release
 
       - name: Upload packages
