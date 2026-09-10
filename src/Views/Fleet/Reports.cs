@@ -191,6 +191,9 @@ public sealed class ReportPage : FleetPage
 
     /// <summary>
     /// The widget row: how the fleet splits across each dimension the report charts.
+    /// Counts are described with the report's own row noun: the installs rows are
+    /// managed items, and calling them devices put the fleet at 122,411 machines on
+    /// a page whose header said 903.
     /// A dimension every device answers identically says nothing, so it is dropped.
     /// </summary>
     private static UIElement? BuildDistributions(ReportSpec spec, List<JsonElement> rows, string? coverage = null)
@@ -259,9 +262,9 @@ public sealed class ReportPage : FleetPage
             // reading one name quietly turned a fleet chart into a Windows one.
             var partial = answered < source.Count;
             var scope = field.Platform is not null
-                ? $"{counts.Count:N0} distinct across {source.Count:N0} {field.Platform} devices"
+                ? $"{counts.Count:N0} distinct across {source.Count:N0} {field.Platform} {spec.RowNoun}"
                 : partial
-                    ? $"{counts.Count:N0} distinct across {answered:N0} of {source.Count:N0} devices"
+                    ? $"{counts.Count:N0} distinct across {answered:N0} of {source.Count:N0} {spec.RowNoun}"
                     : coverage is null
                         ? $"{counts.Count:N0} distinct"
                         : $"{counts.Count:N0} distinct across {coverage}";
