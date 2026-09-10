@@ -102,11 +102,20 @@ public sealed class ReportPage : FleetPage
         var rows = ApplyLinkFilters(spec, result.Data!);
         var capped = spec.Limit is { } cap && result.Data!.Count >= cap;
         var narrowed = rows.Count != result.Data!.Count;
+
+        // How many devices a capped page actually covers. An item-level report caps
+        // at a row count, and rows arrive grouped by device, so the first five
+        // thousand managed items came from fifty machines rather than a spread of the
+        // fleet -- charts drawn over them look fleet-wide and are not. Saying the
+        // device count out loud is what stops the distributions being read as a
+        // statement about everything.
+        var deviceCount = capped ? DistinctDevices(rows) : 0;
+
         page.Children.Add(Ui.TabHeader(_area.Title, _area.Subtitle, "", _area.Accent,
             Ui.Caption(narrowed
                 ? $"{rows.Count:N0} of {result.Data!.Count:N0} {spec.RowNoun}"
                 : capped
-                    ? $"first {rows.Count:N0} {spec.RowNoun}"
+                    ? $"first {rows.Count:N0} {spec.RowNoun}, from {deviceCount:N0} devices"
                     : $"{rows.Count:N0} {spec.RowNoun}")));
 
         if (rows.Count == 0)
@@ -117,13 +126,15 @@ public sealed class ReportPage : FleetPage
             return page;
         }
 
-        var distributions = BuildDistributions(spec, rows);
+        var distributions = BuildDistributions(spec, rows,
+            capped ? $"{deviceCount:N0} devices" : null);
         if (distributions is not null) page.Children.Add(distributions);
         page.Children.Add(BuildTable(spec, rows, Filter("q") ?? Filter("search")));
         if (capped)
             page.Children.Add(Ui.Caption(
-                $"Showing the first {rows.Count:N0} {spec.RowNoun}; the fleet holds more. "
-                + "The figures above describe this page, not the whole fleet."));
+                $"Showing the first {rows.Count:N0} {spec.RowNoun}, which came from {deviceCount:N0} devices. "
+                + "Rows arrive grouped by device, so this is the first few devices rather than a "
+                + "sample of the fleet, and the figures above describe them alone."));
         return page;
     }
 
@@ -157,7 +168,7 @@ public sealed class ReportPage : FleetPage
     /// The widget row: how the fleet splits across each dimension the report charts.
     /// A dimension every device answers identically says nothing, so it is dropped.
     /// </summary>
-    private static UIElement? BuildDistributions(ReportSpec spec, List<JsonElement> rows)
+    private static UIElement? BuildDistributions(ReportSpec spec, List<JsonElement> rows, string? coverage = null)
     {
         var cards = new List<UIElement>();
         foreach (var field in spec.Distributions)
@@ -177,7 +188,8 @@ public sealed class ReportPage : FleetPage
             if (counts.Count > 6)
                 body.Children.Add(Ui.Caption($"and {counts.Count - 6:N0} more"));
 
-            cards.Add(Ui.StatBlock(field.Label, $"{counts.Count:N0} distinct", "", Accent.Blue, Pad(body)));
+            var scope = coverage is null ? $"{counts.Count:N0} distinct" : $"{counts.Count:N0} distinct across {coverage}";
+            cards.Add(Ui.StatBlock(field.Label, scope, "", Accent.Blue, Pad(body)));
         }
 
         if (cards.Count == 0) return null;
@@ -216,6 +228,19 @@ public sealed class ReportPage : FleetPage
             .Build();
         table.Margin = new Thickness(0, 6, 0, 0);
         return table;
+    }
+
+    /// <summary>Distinct devices represented in a page of item-level rows.</summary>
+    private static int DistinctDevices(List<JsonElement> rows)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var field = new Field("serial", "serialNumber");
+        foreach (var row in rows)
+        {
+            var serial = field.Read(row);
+            if (!string.IsNullOrWhiteSpace(serial)) seen.Add(serial);
+        }
+        return seen.Count;
     }
 
     private static UIElement Pad(UIElement body) =>
