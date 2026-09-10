@@ -104,6 +104,10 @@ public sealed class FleetApiClient
         return new FleetResult<List<JsonElement>>(FleetStatus.Ok, all, null);
     }
 
+    /// <summary>A typed response from an arbitrary path.</summary>
+    public Task<FleetResult<T>> GetTypedAsync<T>(string path, CancellationToken ct = default) where T : class =>
+        GetAsync<T>(path, ct);
+
     /// <summary>
     /// A response read as raw JSON, for the drill-downs whose envelope is specific to
     /// one page and not worth a model that would have to change with it.
