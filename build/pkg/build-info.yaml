@@ -1,7 +1,11 @@
 product:
   name: ReportMateApp
   version: {{VERSION}}
-  identifier: com.github.reportmate.app
+  # The architecture is part of the identity, not just the file name. Without it
+  # both builds are one product: they derive the same upgrade code, so installing
+  # the ARM64 package over the x64 one reads as an upgrade of the same thing
+  # rather than a different build for a different machine.
+  identifier: ca.emilycarru.winadmins.{{ARCH}}.ReportMateApp
   developer: Windows Admins Open Source
   description: Native Windows dashboard for ReportMate - fleet views and the report for this device.
 # The same directory the runner installs into, so one folder holds the tooling and

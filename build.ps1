@@ -160,7 +160,7 @@ foreach ($arch in $architectures) {
     $buildInfo = Join-Path $root 'build\pkg\build-info.yaml'
     $original = Get-Content $buildInfo -Raw
     try {
-        Set-Content $buildInfo ($original -replace '\{\{VERSION\}\}', $Version) -Encoding UTF8 -NoNewline
+        Set-Content $buildInfo (($original -replace '\{\{VERSION\}\}', $Version) -replace '\{\{ARCH\}\}', $arch) -Encoding UTF8 -NoNewline
         Push-Location (Join-Path $root 'build\pkg')
         & $cimipkg --verbose . 2>&1 | Write-Host
         if ($LASTEXITCODE -ne 0) { throw "cimipkg failed with exit code $LASTEXITCODE" }
