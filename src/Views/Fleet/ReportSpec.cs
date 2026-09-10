@@ -18,7 +18,14 @@ public enum ValueFormat
 /// One addressable value in a report row. Paths are dotted and may cross an array
 /// with <c>[]</c>, e.g. <c>storage[].type</c>, which yields every element's value.
 /// </summary>
-public sealed record Field(string Label, string Path, ValueFormat Format = ValueFormat.Text)
+/// <param name="Platform">
+/// Restricts the field to one platform's devices. Several fields exist only on
+/// Windows and the API reports them as false on a Mac rather than omitting them, so
+/// counting every device turns "does not apply here" into "switched off" -- which on
+/// a security report is the difference between antivirus being enabled on almost
+/// every Windows machine and appearing to be missing from half the fleet.
+/// </param>
+public sealed record Field(string Label, string Path, ValueFormat Format = ValueFormat.Text, string? Platform = null)
 {
     /// <summary>The value as a display string, or empty when the path is absent.</summary>
     public string Read(JsonElement row) => Json.ReadOne(row, Path) is { } v ? Format switch
@@ -105,7 +112,7 @@ public sealed record ReportSpec(
                 new("Operating system", "operatingSystem"),
                 new("Version", "osVersion"),
                 new("Display version", "displayVersion"),
-                new("Edition", "edition"),
+                new("Edition", "edition", Platform: "Windows"),
                 new("Architecture", "architecture"),
                 new("Activation", "activationStatus"),
                 new("Locale", "locale"),
@@ -129,14 +136,20 @@ public sealed record ReportSpec(
 
         ["security"] = new("security",
             [
-                new("Antivirus", "antivirusName"),
-                new("Antivirus enabled", "antivirusEnabled"),
+                // Every one of these but encryption is Windows-only, and the API
+                // reports them as false on a Mac rather than leaving them out.
+                // Counted across the whole fleet they read as failures: antivirus
+                // showed as absent on 56% of devices when it is enabled on 394 of
+                // 395 Windows machines, and TPM as missing on 56% when every
+                // Windows machine has one.
+                new("Antivirus", "antivirusName", Platform: "Windows"),
+                new("Antivirus enabled", "antivirusEnabled", Platform: "Windows"),
                 new("Encryption", "encryptionEnabled"),
-                new("Firewall", "firewallEnabled"),
-                new("TPM present", "tpmPresent"),
-                new("Secure Boot", "secureBootEnabled"),
-                new("Tamper protection", "tamperProtected"),
-                new("Smart App Control", "smartAppControlState"),
+                new("Firewall", "firewallEnabled", Platform: "Windows"),
+                new("TPM present", "tpmPresent", Platform: "Windows"),
+                new("Secure Boot", "secureBootEnabled", Platform: "Windows"),
+                new("Tamper protection", "tamperProtected", Platform: "Windows"),
+                new("Smart App Control", "smartAppControlState", Platform: "Windows"),
             ],
             [
                 new("Device", new("Device", "deviceName"), Star: true),
