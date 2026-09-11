@@ -41,13 +41,17 @@ public sealed class SystemTab : DeviceTab
             : Ui.Pill("Up to Date", Tone.Success));
         Add(Ui.TabHeader("System Information", "Operating system and apps access", Glyph, Accent, updateBadge), 0);
 
-        // Row 1: OS | Version | Feature | Edition + activation
+        // Row 1: OS | Version | Build | Feature | Edition + activation
         UIElement? activation = null;
         if (os.Activation is { } act)
             activation = Ui.Pill(act.IsActivated ? "Activated" : "Not Activated", act.IsActivated ? Tone.Success : Tone.Error);
         Add(Ui.TileRow(12,
             Ui.Tile(SystemWidget.OsLabel(os), Format.OrUnknown(os.DisplayVersion)),
             Ui.Tile("Version", SystemWidget.BuildNumber(os.Version)),
+            // The build on its own, as the web's System tab shows it. Version is
+            // derived from the full version string; this is the number quoted
+            // against a KB or a known-issue list.
+            Ui.Tile("Build", Format.OrUnknown(os.Build)),
             Ui.Tile("Feature", Format.OrUnknown(os.FeatureUpdate)),
             Ui.Tile("Edition", Format.OrDash(os.Edition), activation)), 0);
 
