@@ -31,7 +31,8 @@ public sealed class EventsPage : FleetPage
             .OrderByDescending(e => e.When ?? DateTime.MinValue)
             .Select(e => new EventRow
             {
-                Kind = Format.Capitalize(e.Kind ?? e.EventType ?? "info"),
+                Kind = Format.Capitalize(NormalizeKind(e.Kind ?? e.EventType)),
+                RawKind = NormalizeKind(e.Kind ?? e.EventType),
                 KindTone = Classify(e.Kind ?? e.EventType),
                 Device = e.DeviceName ?? e.SerialNumber ?? e.Device ?? "",
                 Message = e.Message ?? "",
@@ -47,16 +48,20 @@ public sealed class EventsPage : FleetPage
                 Col.Text("Message", "Message", star: true, wrap: true),
                 Col.Text("When", "WhenLabel", 130),
             ], "Search events...", "No events match the current filters")
+            // The web app filters on all six kinds it recognises, not just the two
+            // that mean something is wrong. Offering only errors and warnings made
+            // the other 999 of every 1000 events reachable in one undifferentiated
+            // heap: this fleet reports 985 info, 9 success, 5 system and 1 warning
+            // in a thousand, so "everything that is not a problem" was the bulk of
+            // the page and could not be narrowed at all.
             .Filter([
                 new("all", "All", rows.Count),
-                new("error", "Errors", rows.Count(r => r.KindTone == Tone.Error)),
-                new("warning", "Warnings", rows.Count(r => r.KindTone == Tone.Warning)),
-            ], (r, k) => k switch
-            {
-                "error" => r.KindTone == Tone.Error,
-                "warning" => r.KindTone == Tone.Warning,
-                _ => true,
-            }, initial: InitialFilter())
+                new("error", "Errors", rows.Count(r => r.Kinds("error"))),
+                new("warning", "Warnings", rows.Count(r => r.Kinds("warning"))),
+                new("success", "Success", rows.Count(r => r.Kinds("success"))),
+                new("system", "System", rows.Count(r => r.Kinds("system"))),
+                new("info", "Info", rows.Count(r => r.Kinds("info"))),
+            ], (r, k) => k == "all" || r.Kinds(k), initial: InitialFilter())
             .WithQuery(Filter("q"))
             .Build();
 
@@ -80,9 +85,27 @@ public sealed class EventsPage : FleetPage
             {
                 case "errors" or "error": return "error";
                 case "warnings" or "warning": return "warning";
+                case "successes" or "success": return "success";
+                case "system": return "system";
+                case "info": return "info";
             }
         return "all";
     }
+
+    /// <summary>
+    /// The kind this event filters under. data_collection is the runner's own
+    /// routine upload and reads as info everywhere else in the product, so it is
+    /// folded in rather than given a filter of its own that would almost always
+    /// be empty.
+    /// </summary>
+    private static string NormalizeKind(string? kind) => (kind ?? "").ToLowerInvariant() switch
+    {
+        "error" or "failed" or "failure" => "error",
+        "warning" or "warn" => "warning",
+        "success" or "installed" => "success",
+        "system" => "system",
+        _ => "info",
+    };
 
     private static Tone Classify(string? kind) => (kind ?? "").ToLowerInvariant() switch
     {
@@ -95,7 +118,10 @@ public sealed class EventsPage : FleetPage
     private sealed class EventRow
     {
         public string Kind { get; init; } = "";
+        public string RawKind { get; init; } = "";
         public Tone KindTone { get; init; }
+
+        public bool Kinds(string key) => RawKind == key;
         public string Device { get; init; } = "";
         public string Message { get; init; } = "";
         public DateTime? When { get; init; }
