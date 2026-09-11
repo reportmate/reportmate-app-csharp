@@ -49,9 +49,14 @@ public sealed class ReportsPage : FleetPage
         var grid = new UniformGrid { Columns = 3, Margin = new Thickness(0, 20, 0, 0) };
         // The applications drill-downs are pages of their own on the web, so they get
         // their own cards here rather than being reachable only by a link.
-        var areas = ReportArea.All.Append(
-            new ReportArea("applications/coverage", "Usage Coverage",
-                "Which devices report application usage", Accent.Emerald, ""));
+        var areas = ReportArea.All
+            .Append(new ReportArea("applications/coverage", "Usage Coverage",
+                "Which devices report application usage", Accent.Emerald, ""))
+            // Failed check-ins are the only view whose subject is absent from
+            // every other one: a device the server turned away never became a
+            // device, so it is in no list and raises no warning.
+            .Append(new ReportArea("failures", "Failed Check-ins",
+                "Devices the server turned away", Accent.Red, ""));
         foreach (var area in areas)
         {
             var body = new StackPanel();
