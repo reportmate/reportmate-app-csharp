@@ -86,14 +86,44 @@ public sealed class DeviceSnapshotStore
 
             // Every run's event.json carries that run's events; keep them all so the
             // Events tab has a history, deduplicated on (timestamp, module, message).
-            if (i >= EventRunsToScan) continue;
+            // Past the event window this file is still worth opening while any
+            // module is unaccounted for -- the same reason the loose files are
+            // searched across every run, since a module on a slow schedule can sit
+            // further back than twelve runs.
+            var missing = inventory is null || system is null || hardware is null
+                || management is null || installs is null || security is null
+                || identity is null || network is null || peripherals is null
+                || applications is null;
+            if (i >= EventRunsToScan && !missing) continue;
+
             var unified = ReadFile<UnifiedDevicePayload>(Path.Combine(run, "event.json"));
-            if (unified is not null)
+            if (unified is null) continue;
+
+            if (i < EventRunsToScan)
             {
                 metadata ??= unified.Metadata;
                 foreach (var e in unified.Events ?? [])
                     if (seenEvents.Add((e.Timestamp, e.ModuleId ?? "", e.Message ?? ""))) events.Add(e);
             }
+
+            // event.json is the whole upload, every module in one file, and it is
+            // what the server is actually given. The per-module files beside it are
+            // a convenience the runner does not always write: on this machine no run
+            // in a day produced hardware.json, because the hardware module needs WMI
+            // and the client disables it after a type-initializer failure -- yet the
+            // hardware section is present in event.json and in the API. Reading only
+            // the loose files left the Hardware tab saying the module was missing on
+            // a device whose hardware the fleet can see.
+            inventory ??= Take(unified.Inventory, run, "inventory", collectedAt);
+            system ??= Take(unified.System, run, "system", collectedAt);
+            hardware ??= Take(unified.Hardware, run, "hardware", collectedAt);
+            management ??= Take(unified.Management, run, "management", collectedAt);
+            installs ??= Take(unified.Installs, run, "installs", collectedAt);
+            security ??= Take(unified.Security, run, "security", collectedAt);
+            identity ??= Take(unified.Identity, run, "identity", collectedAt);
+            network ??= Take(unified.Network, run, "network", collectedAt);
+            peripherals ??= Take(unified.Peripherals, run, "peripherals", collectedAt);
+            applications ??= Take(unified.Applications, run, "applications", collectedAt);
         }
 
         return new DeviceSnapshot
@@ -160,5 +190,19 @@ public sealed class DeviceSnapshotStore
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// A module section lifted out of the unified payload, stamped with the run it
+    /// came from so the tab's "collected at" line reads the same as it would have
+    /// from a loose file.
+    /// </summary>
+    private static T? Take<T>(T? section, string run, string module,
+        Dictionary<string, DateTime> collectedAt) where T : class
+    {
+        if (section is null) return null;
+        if (!collectedAt.ContainsKey(module))
+            collectedAt[module] = File.GetLastWriteTime(Path.Combine(run, "event.json"));
+        return section;
     }
 }
