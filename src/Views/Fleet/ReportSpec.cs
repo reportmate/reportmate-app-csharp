@@ -187,10 +187,16 @@ public sealed record ReportSpec(
             [
                 new("Operating system", "operatingSystem"),
                 new("Version", "osVersion"),
-                new("Display version", "displayVersion"),
+                // Windows-only concepts, and the API omits them on a Mac rather
+                // than returning a blank: displayVersion is the 23H2-style release
+                // name and activationStatus is Windows licensing. Charted
+                // fleet-wide they counted 396 of 887 devices under a card that
+                // said it covered the fleet, and read as a 55% gap that is not
+                // there.
+                new("Display version", "displayVersion", Platform: "Windows"),
                 new("Edition", "edition", Platform: "Windows"),
                 new("Architecture", "architecture"),
-                new("Activation", "activationStatus"),
+                new("Activation", "activationStatus", Platform: "Windows"),
                 new("Locale", "locale"),
                 new("Time zone", "timeZone"),
             ],
@@ -251,8 +257,14 @@ public sealed record ReportSpec(
                 // the chart read "9 - 9%, 10 - 8%, 7 - 8%" and said nothing; macOS
                 // reports no primaryInterface at all. There is no interface name in
                 // this payload to chart.
-                new("DNS server", "raw.dns.servers[]"),
-                new("Wi-Fi SSID", "raw.activeConnection.activeWifiSsid"),
+                // Scoped to Windows because of where the data stops, not where
+                // the concept does: a Mac plainly has DNS servers and a Wi-Fi
+                // SSID, and the Mac client reports neither -- 0 of 489 on both.
+                // Charted fleet-wide that read as 489 machines with no DNS at
+                // all. Scoping is the honest presentation until the Mac client
+                // collects them; the gap itself belongs at the collection source.
+                new("DNS server", "raw.dns.servers[]", Platform: "Windows"),
+                new("Wi-Fi SSID", "raw.activeConnection.activeWifiSsid", Platform: "Windows"),
             ],
             [
                 new("Device", new("Device", "deviceName"), Star: true),
