@@ -36,7 +36,12 @@ public partial class MainWindow : Window
         SyncPlatformToggle();
 
         ReportsPage.ReportChosen += id =>
-            NavigateTo(id == "applications/coverage" ? "coverage" : "report:" + id);
+            NavigateTo(id switch
+            {
+                "applications/coverage" => "coverage",
+                "failures" => "failures",
+                _ => "report:" + id,
+            });
         ProtocolHandler.LinkReceived += OpenDeepLink;
         SizeChanged += (_, _) => BuildTabs();
         BuildTabs();
@@ -175,6 +180,14 @@ public partial class MainWindow : Window
                 NavigateTo("report:applications");
                 return;
 
+            // events/failures is a page of its own on the web, the same shape as
+            // applications/coverage, so a link to it opens that page rather than the
+            // events list.
+            case "events" when link.Argument is { } events
+                && events.Equals("failures", StringComparison.OrdinalIgnoreCase):
+                NavigateTo("failures");
+                return;
+
             case "dashboard" or "devices" or "events":
                 PendingLink = link;
                 NavigateTo(link.Section);
@@ -220,6 +233,7 @@ public partial class MainWindow : Window
             page = new AppUsagePage(split > 0 ? rest[(split + 1)..] : rest, days);
         }
         else if (tag == "coverage") page = new CoveragePage();
+        else if (tag == "failures") page = new FailuresPage();
         else if (tag.StartsWith("report:", StringComparison.Ordinal))
         {
             var area = ReportArea.ById(tag["report:".Length..]);
