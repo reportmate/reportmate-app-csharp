@@ -137,6 +137,7 @@ public sealed class FailuresPage : FleetPage
                     Status = CoveragePage.Str(f, "statusCode"),
                     Client = CoveragePage.Str(f, "clientVersion"),
                     When = Relative(CoveragePage.Str(f, "ts")),
+                    At = Instant(CoveragePage.Str(f, "ts")),
                     Detail = CoveragePage.Str(f, "detail"),
                 });
             }
@@ -167,7 +168,7 @@ public sealed class FailuresPage : FleetPage
                 Col.Text("Type", "Kind", 100),
                 Col.Text("Status", "Status", 80),
                 Col.Text("Client", "Client", 150),
-                Col.Text("When", "When", 110),
+                Col.Text("When", "When", 110, sortBy: "At"),
                 Col.Text("Detail", "Detail", 300, wrap: true),
             ], $"Search {Copy.Noun}s...", $"No {Copy.Noun} matches the current filters")
             .Build();
@@ -230,6 +231,11 @@ public sealed class FailuresPage : FleetPage
     private string WindowLabel() =>
         Windows.FirstOrDefault(w => w.Hours == _hours).Label ?? $"{_hours} hours";
 
+    private static DateTime Instant(string timestamp) =>
+        DateTime.TryParse(timestamp, null,
+            System.Globalization.DateTimeStyles.AdjustToUniversal, out var when)
+            ? when : DateTime.MinValue;
+
     private static string Relative(string timestamp)
     {
         if (!DateTime.TryParse(timestamp, null,
@@ -254,6 +260,9 @@ public sealed class FailuresPage : FleetPage
         public string Status { get; init; } = "";
         public string Client { get; init; } = "";
         public string When { get; init; } = "";
+
+        /// <summary>What the When column sorts by; the words in it do not order.</summary>
+        public DateTime At { get; init; }
         public string Detail { get; init; } = "";
 
         // Code as well as label: someone reading the API's own vocabulary in a log

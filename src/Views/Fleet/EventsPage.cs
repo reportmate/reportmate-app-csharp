@@ -48,7 +48,7 @@ public sealed class EventsPage : FleetPage
                 Col.Pill("Kind", "Kind", "KindTone", 110),
                 Col.Text("Device", "Device", 220),
                 Col.Text("Message", "Message", star: true, wrap: true),
-                Col.Text("When", "WhenLabel", 130),
+                Col.Text("When", "WhenLabel", 130, sortBy: "When"),
             ], "Search events...", "No events match the current filters")
             // The web app filters on all six kinds it recognises, not just the two
             // that mean something is wrong. Offering only errors and warnings made
