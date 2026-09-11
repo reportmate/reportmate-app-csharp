@@ -53,7 +53,27 @@ public static class SecurityWidget
         // Firewall
         var fw = sec.Firewall;
         var fwStatus = DeviceSnapshot.FirstNonEmpty(fw?.StatusDisplay) ?? (fw is null ? "Unknown" : fw.IsEnabled ? "Enabled" : "Disabled");
-        body.Children.Add(Ui.StatusBadge("Firewall", fwStatus, Tone.Neutral));
+        body.Children.Add(Ui.StatusBadge("Firewall", fwStatus, fw?.IsEnabled == true ? Tone.Success : Tone.Warning));
+
+        // Secure Boot and the TPM. The web's summary carries whatever its platform
+        // calls core protection -- FileVault, Gatekeeper, System Integrity
+        // Protection -- and on Windows these two are that, which is why the fleet
+        // Security report charts both. They were only on the Security tab, so the
+        // overview said a machine was protected without mentioning the firmware.
+        var sb = sec.SecureBoot;
+        if (sb is not null)
+            body.Children.Add(Ui.StatusBadge("Secure Boot",
+                DeviceSnapshot.FirstNonEmpty(sb.StatusDisplay) ?? Format.EnabledDisabled(sb.IsEnabled),
+                Ui.ToneFor(sb.IsEnabled)));
+
+        var tpm = sec.Tpm;
+        if (tpm is not null)
+            // Present but switched off is the case worth seeing: the machine can do
+            // this and is not, which reads differently from having no TPM at all.
+            body.Children.Add(Ui.StatusBadge("TPM",
+                DeviceSnapshot.FirstNonEmpty(tpm.StatusDisplay)
+                    ?? (tpm.IsPresent ? Format.EnabledDisabled(tpm.IsEnabled) : "Not present"),
+                tpm.IsPresent ? Ui.ToneFor(tpm.IsEnabled) : Tone.Error));
 
         return Ui.StatBlock("Security", "Windows protection status", "", Accent.Red, body);
     }
