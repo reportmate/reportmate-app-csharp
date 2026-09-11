@@ -181,6 +181,8 @@ public sealed record ReportSpec(
                 new("Graphics", new("Graphics", "graphics.name"), 170),
                 new("Displays", new("Displays", "displays[].name"), 190),
                 new("Architecture", new("Architecture", "", Derive: Hardware.Normalize), 150),
+                // Free space, which no report has shown. Every device reports it.
+                new("Storage", new("Storage", "", Derive: Hardware.Storage), 200),
             ]),
 
         ["system"] = new("system",
