@@ -24,27 +24,20 @@ public sealed class FleetSettingsDocument
     [JsonPropertyName("value")] public FleetSettingsValue? Value { get; set; }
     [JsonPropertyName("updatedAt")] public DateTime? UpdatedAt { get; set; }
     [JsonPropertyName("updatedBy")] public string? UpdatedBy { get; set; }
+
+    // Alongside the document, not inside it: the API serves the version from its
+    // own column so a reader can tell a stale document from an absent one without
+    // having to parse the value first.
+    [JsonPropertyName("schemaVersion")] public int? SchemaVersion { get; set; }
 }
 
 public sealed class FleetSettingsValue
 {
-    [JsonPropertyName("kiosk")] public KioskSettings? Kiosk { get; set; }
-
-    // The API carries these three alongside kiosk. They are null on this fleet
-    // today, so the page says so rather than drawing an editor over nothing.
+    // The three sections the document actually carries. They are null on this
+    // fleet today, so the page says so rather than drawing an editor over nothing.
     [JsonPropertyName("general")] public JsonElement? General { get; set; }
     [JsonPropertyName("security")] public JsonElement? Security { get; set; }
     [JsonPropertyName("inventory")] public JsonElement? Inventory { get; set; }
-    [JsonPropertyName("schemaVersion")] public int? SchemaVersion { get; set; }
-}
-
-/// <summary>How a kiosk display presents the dashboard.</summary>
-public sealed class KioskSettings
-{
-    [JsonPropertyName("zoom")] public double? Zoom { get; set; }
-    [JsonPropertyName("theme")] public string? Theme { get; set; }
-    [JsonPropertyName("homePath")] public string? HomePath { get; set; }
-    [JsonPropertyName("idleMinutes")] public int? IdleMinutes { get; set; }
 }
 
 public static class FleetSettings

@@ -45,8 +45,6 @@
                              Style="{StaticResource DeviceTabStyle}" Checked="OnSectionChecked" />
                 <RadioButton Content="Security Rules" Tag="Security" GroupName="SettingsSections"
                              Style="{StaticResource DeviceTabStyle}" Checked="OnSectionChecked" />
-                <RadioButton Content="Kiosk Displays" Tag="Kiosk" GroupName="SettingsSections"
-                             Style="{StaticResource DeviceTabStyle}" Checked="OnSectionChecked" />
                 <RadioButton Content="Maintenance" Tag="Maintenance" GroupName="SettingsSections"
                              Style="{StaticResource DeviceTabStyle}" Checked="OnSectionChecked" />
             </StackPanel>
@@ -101,7 +99,6 @@
                     </StackPanel>
                     <StackPanel x:Name="InventoryBody" Style="{StaticResource SectionBody}" Visibility="Collapsed" />
                     <StackPanel x:Name="SecurityBody" Style="{StaticResource SectionBody}" Visibility="Collapsed" />
-                    <StackPanel x:Name="KioskBody" Style="{StaticResource SectionBody}" Visibility="Collapsed" />
                     <StackPanel x:Name="MaintenanceBody" Style="{StaticResource SectionBody}" Visibility="Collapsed" />
                 </Grid>
             </Border>
