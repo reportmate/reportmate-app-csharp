@@ -49,7 +49,7 @@ public partial class SettingsPage : Page
     private (string, StackPanel)[] Sections() =>
     [
         ("General", GeneralBody), ("Inventory", InventoryBody), ("Security", SecurityBody),
-        ("Kiosk", KioskBody), ("Maintenance", MaintenanceBody),
+        ("Maintenance", MaintenanceBody),
     ];
 
     // PasswordBox.Password is not bindable by design; push it into the view model by hand.
@@ -70,20 +70,20 @@ public partial class SettingsPage : Page
     /// </remarks>
     private async Task LoadFleetSettingsAsync()
     {
-        foreach (var body in new[] { InventoryBody, SecurityBody, KioskBody, MaintenanceBody })
+        foreach (var body in new[] { InventoryBody, SecurityBody, MaintenanceBody })
         {
             body.Children.Clear();
             body.Children.Add(Ui.Caption("Loading…"));
         }
 
         var result = await FleetSettings.GetAsync();
-        foreach (var body in new[] { InventoryBody, SecurityBody, KioskBody, MaintenanceBody })
+        foreach (var body in new[] { InventoryBody, SecurityBody, MaintenanceBody })
             body.Children.Clear();
 
         if (!result.Ok)
         {
             var why = result.Detail ?? "The fleet settings could not be read.";
-            foreach (var body in new[] { InventoryBody, SecurityBody, KioskBody, MaintenanceBody })
+            foreach (var body in new[] { InventoryBody, SecurityBody, MaintenanceBody })
                 body.Children.Add(Ui.EmptyState(why));
             return;
         }
@@ -100,7 +100,6 @@ public partial class SettingsPage : Page
         Section(SecurityBody, "Security Rules",
             "The rules the fleet's security reporting is measured against.",
             value?.Security, stamp, "rules");
-        Kiosk(value?.Kiosk, stamp);
         Maintenance();
     }
 
@@ -137,41 +136,6 @@ public partial class SettingsPage : Page
         body.Children.Add(text);
         if (stamp is not null) body.Children.Add(Stamp(stamp));
         OpenInWeb(body, section);
-    }
-
-    private void Kiosk(KioskSettings? kiosk, string? stamp)
-    {
-        KioskBody.Children.Add(Ui.Text("Kiosk Displays", "SectionHeaderStyle"));
-        var sub = Ui.Caption("How a wall display presents the dashboard.");
-        sub.TextWrapping = TextWrapping.Wrap;
-        sub.Margin = new Thickness(0, 2, 0, 10);
-        KioskBody.Children.Add(sub);
-
-        if (kiosk is null)
-        {
-            KioskBody.Children.Add(Ui.EmptyState("No kiosk display is configured for this fleet."));
-            OpenInWeb(KioskBody, "general");
-            return;
-        }
-
-        foreach (var (label, value) in new (string, string?)[]
-                 {
-                     ("Home page", kiosk.HomePath),
-                     ("Theme", kiosk.Theme),
-                     ("Zoom", kiosk.Zoom is { } z ? $"{z:0.##}x" : null),
-                     ("Idle before returning home", kiosk.IdleMinutes is { } m ? $"{m} minutes" : null),
-                 })
-        {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
-            var name = Ui.Caption(label);
-            name.Width = 200;
-            row.Children.Add(name);
-            row.Children.Add(Ui.Text(value ?? "Not set", "BodyTextStyle"));
-            KioskBody.Children.Add(row);
-        }
-
-        if (stamp is not null) KioskBody.Children.Add(Stamp(stamp));
-        OpenInWeb(KioskBody, "general");
     }
 
     /// <summary>
