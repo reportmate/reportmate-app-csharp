@@ -21,7 +21,11 @@ public static class SystemWidget
         var top = Ui.Columns(3, 16,
             Ui.Stat(osLabel, marketing),
             Ui.Stat("Version", BuildNumber(os.Version)),
-            Ui.Stat("Feature", Format.OrUnknown(os.FeatureUpdate)));
+            Ui.Stat("Feature", Format.OrUnknown(os.FeatureUpdate)),
+            // The web carries the build alongside the version and this did not.
+            // Version is derived from the full string; Build is the number people
+            // actually quote against a KB or a known-issue list.
+            Ui.Stat("Build", Format.OrUnknown(os.Build)));
 
         var pending = sys!.PendingWindowsUpdates?.Count ?? sys.PendingWindowsUpdatesCount;
         var updates = new System.Windows.Controls.StackPanel();
