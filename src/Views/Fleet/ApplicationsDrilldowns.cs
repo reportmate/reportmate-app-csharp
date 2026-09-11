@@ -47,18 +47,26 @@ public sealed class CoveragePage : FleetPage
 
         // The platform split matters here: one platform reporting and the other not is a
         // client problem, whereas both drifting together is a fleet problem.
-        if (root.TryGetProperty("byPlatform", out var platforms) && platforms.ValueKind == JsonValueKind.Array)
+        // An object keyed by platform name, not an array of them. This read Array
+        // and so never matched: the card was absent from the page for its whole
+        // existence, and silently, because a missing card looks like a card that
+        // had nothing to say.
+        if (root.TryGetProperty("byPlatform", out var platforms) && platforms.ValueKind == JsonValueKind.Object)
         {
             var platformBody = new StackPanel();
-            foreach (var entry in platforms.EnumerateArray())
-                foreach (var platform in entry.EnumerateObject())
-                {
-                    var v = platform.Value;
-                    var platformTotal = Int(v, "total");
-                    platformBody.Children.Add(Ui.Caption($"{platform.Name} — {platformTotal:N0} devices"));
-                    platformBody.Children.Add(Charts.Bar("Reporting", Int(v, "healthy"), platformTotal, Tone.Success));
-                    platformBody.Children.Add(Charts.Bar("Never reported", Int(v, "never"), platformTotal, Tone.Neutral));
-                }
+            foreach (var platform in platforms.EnumerateObject())
+            {
+                var v = platform.Value;
+                var platformTotal = Int(v, "total");
+                platformBody.Children.Add(Ui.Caption($"{platform.Name} — {platformTotal:N0} devices"));
+                // All four buckets, as the fleet card above draws them. Charting
+                // only the two extremes left the stale and dark devices in neither
+                // bar, so the platform rows did not add up to their own total.
+                platformBody.Children.Add(Charts.Bar("Reporting", Int(v, "healthy"), platformTotal, Tone.Success));
+                platformBody.Children.Add(Charts.Bar("Stale", Int(v, "stale"), platformTotal, Tone.Warning));
+                platformBody.Children.Add(Charts.Bar("Dark", Int(v, "dark"), platformTotal, Tone.Error));
+                platformBody.Children.Add(Charts.Bar("Never reported", Int(v, "never"), platformTotal, Tone.Neutral));
+            }
             cards.Children.Add(Pad(Ui.StatBlock("By platform", null, "", Accent.Purple,
                 new Border { Padding = new Thickness(20, 4, 20, 16), Child = platformBody })));
         }
@@ -78,6 +86,7 @@ public sealed class CoveragePage : FleetPage
                 Bucket = Str(d, "bucket"),
                 LastUsage = Str(d, "lastUsageDate"),
                 Days = Str(d, "daysSinceUsage"),
+                DaysValue = Num(d, "daysSinceUsage"),
             }).ToList();
 
             if (rows.Count > 0)
@@ -90,7 +99,7 @@ public sealed class CoveragePage : FleetPage
                         Col.Text("Platform", "Platform", 100),
                         Col.Text("State", "Bucket", 110),
                         Col.Text("Last usage", "LastUsage", 140),
-                        Col.Text("Days dark", "Days", 100),
+                        Col.Text("Days dark", "Days", 100, sortBy: "DaysValue"),
                         Col.Text("Location", "Location", 120),
                     ], "Search devices...", "No devices match the current filters")
                     .Build();
@@ -112,6 +121,7 @@ public sealed class CoveragePage : FleetPage
         public string Bucket { get; init; } = "";
         public string LastUsage { get; init; } = "";
         public string Days { get; init; } = "";
+        public double DaysValue { get; init; }
 
         public bool Matches(string q) => string.IsNullOrWhiteSpace(q)
             || $"{Device} {Serial} {Platform} {Location} {Usage} {Bucket}".Contains(q, StringComparison.OrdinalIgnoreCase);
@@ -126,6 +136,11 @@ public sealed class CoveragePage : FleetPage
     internal static int Int(JsonElement parent, string name) =>
         parent.ValueKind == JsonValueKind.Object && parent.TryGetProperty(name, out var v)
         && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var n) ? n : 0;
+
+    /// <summary>The numeric value at a key, for sorting a column that displays it formatted.</summary>
+    internal static double Num(JsonElement parent, string name) =>
+        parent.ValueKind == JsonValueKind.Object && parent.TryGetProperty(name, out var v)
+        && v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var d) ? d : 0;
 
     internal static string Str(JsonElement parent, string name) =>
         parent.ValueKind == JsonValueKind.Object && parent.TryGetProperty(name, out var v)
@@ -188,6 +203,9 @@ public sealed class AppUsagePage : FleetPage
             HoursLabel = CoveragePage.Str(d, "totalHours"),
             Launches = CoveragePage.Str(d, "launchCount"),
             Users = CoveragePage.Str(d, "userCount"),
+            HoursValue = CoveragePage.Num(d, "totalHours"),
+            LaunchValue = CoveragePage.Num(d, "launchCount"),
+            UserValue = CoveragePage.Num(d, "userCount"),
             LastUsed = CoveragePage.Str(d, "lastUsed"),
             Location = CoveragePage.Str(d, "location"),
             Usage = CoveragePage.Str(d, "usage"),
@@ -204,9 +222,9 @@ public sealed class AppUsagePage : FleetPage
             [
                 Col.Text("Device", "Device", star: true),
                 Col.Text("Serial", "Serial", 150, mono: true),
-                Col.Text("Hours", "HoursLabel", 90),
-                Col.Text("Launches", "Launches", 100),
-                Col.Text("People", "Users", 90),
+                Col.Text("Hours", "HoursLabel", 90, sortBy: "HoursValue"),
+                Col.Text("Launches", "Launches", 100, sortBy: "LaunchValue"),
+                Col.Text("People", "Users", 90, sortBy: "UserValue"),
                 Col.Text("Last used", "LastUsed", 160),
                 Col.Text("Location", "Location", 120),
             ], "Search devices...", "No devices match the current filters")
@@ -238,6 +256,13 @@ public sealed class AppUsagePage : FleetPage
         public string HoursLabel { get; init; } = "";
         public string Launches { get; init; } = "";
         public string Users { get; init; } = "";
+
+        // The columns above are formatted for reading; these are what they sort by.
+        // Ranking devices by hours is the whole reason this table exists, and a
+        // string sort puts 9 hours above 1,162.
+        public double HoursValue { get; init; }
+        public double LaunchValue { get; init; }
+        public double UserValue { get; init; }
         public string LastUsed { get; init; } = "";
         public string Location { get; init; } = "";
         public string Usage { get; init; } = "";

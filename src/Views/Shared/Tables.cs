@@ -52,6 +52,7 @@ public sealed class Col
     public string Header { get; init; } = "";
     public string Path { get; init; } = "";
     public string? SubPath { get; init; }
+    public string? SortPath { get; init; }
     public string? TonePath { get; init; }
     public ColKind Kind { get; init; } = ColKind.Text;
     public double? Width { get; init; }
@@ -61,8 +62,13 @@ public sealed class Col
     public bool Wrap { get; init; }
     public bool Secondary { get; init; }
 
-    public static Col Text(string header, string path, double? width = null, bool star = false, bool mono = false, string? sub = null, bool wrap = false, bool secondary = false)
-        => new() { Header = header, Path = path, Width = width, Star = star, Mono = mono, SubPath = sub, Wrap = wrap, Secondary = secondary };
+    /// <param name="sortBy">
+    /// A different property to sort on. A column showing a formatted number holds
+    /// a string, and a string sorts "9" after "1162", which is worst on exactly the
+    /// columns people sort: hours, launches, counts. Point this at the raw number.
+    /// </param>
+    public static Col Text(string header, string path, double? width = null, bool star = false, bool mono = false, string? sub = null, bool wrap = false, bool secondary = false, string? sortBy = null)
+        => new() { Header = header, Path = path, Width = width, Star = star, Mono = mono, SubPath = sub, Wrap = wrap, Secondary = secondary, SortPath = sortBy };
 
     public static Col Pill(string header, string path, string tonePath, double? width = null)
         => new() { Header = header, Path = path, TonePath = tonePath, Kind = ColKind.Pill, Width = width };
@@ -158,7 +164,7 @@ public static class Table
             Header = col.Header,
             Width = width,
             MinWidth = col.MinWidth ?? 0,
-            SortMemberPath = col.Path,
+            SortMemberPath = col.SortPath ?? col.Path,
             CanUserSort = true,
         };
 
