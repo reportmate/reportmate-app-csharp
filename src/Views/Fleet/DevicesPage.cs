@@ -71,6 +71,7 @@ public sealed class DevicesPage : FleetPage
                 OsVersion = Pick(d.OsVersion, d.Modules?.System?.OperatingSystem?.DisplayVersion,
                                  d.Modules?.System?.OperatingSystem?.Version) ?? "",
                 Usage = d.Usage ?? "",
+                Catalog = d.Catalog ?? "",
                 Location = d.Location ?? "",
                 LastSeen = d.LastSeen,
             })
@@ -107,6 +108,16 @@ public sealed class DevicesPage : FleetPage
                 "missing" => r.Liveness == DeviceLiveness.Missing,
                 _ => true,
             }, initial: wantedStatus is null ? "all" : wantedStatus.ToLowerInvariant())
+            // Usage and catalog, the two inventory dimensions with few enough values
+            // to be pills: 2 and 6 across the fleet. Built from the values actually
+            // present rather than a fixed list, so a new catalog appears on its own.
+            //
+            // Not area or fleet, which the web also offers here. Both are null on
+            // all 903 devices, at the top level and under modules.inventory alike,
+            // so those controls cannot narrow anything. Location is left to the
+            // search box: 240 distinct values is not a pill row.
+            .Filter(Options(rows, r => r.Usage, "Any usage"), (r, k) => r.Usage == k)
+            .Filter(Options(rows, r => r.Catalog, "Any catalog"), (r, k) => r.Catalog == k)
             .WithQuery(Filter("search") ?? Filter("q"))
             .Build();
 
@@ -136,6 +147,24 @@ public sealed class DevicesPage : FleetPage
         return card;
     }
 
+    /// <summary>
+    /// One pill per distinct value, commonest first, with an "all" pill carrying the
+    /// unfiltered count. Blank values get no pill: a device with no catalog recorded
+    /// is not a catalog.
+    /// </summary>
+    private static List<FilterOption> Options(
+        List<DeviceRow> rows, Func<DeviceRow, string> field, string allLabel)
+    {
+        var options = new List<FilterOption> { new("all", allLabel, rows.Count) };
+        options.AddRange(rows
+            .Select(field)
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .GroupBy(v => v, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(g => g.Count())
+            .Select(g => new FilterOption(g.Key, g.Key, g.Count())));
+        return options;
+    }
+
     private sealed class DeviceRow
     {
         public string Name { get; init; } = "";
@@ -144,6 +173,7 @@ public sealed class DevicesPage : FleetPage
         public Tone StatusTone { get; init; }
         public DeviceLiveness Liveness { get; init; }
         public string Usage { get; init; } = "";
+        public string Catalog { get; init; } = "";
         public string Department { get; init; } = "";
         public string Platform { get; init; } = "";
         public string OsVersion { get; init; } = "";
@@ -153,7 +183,7 @@ public sealed class DevicesPage : FleetPage
 
         public bool Matches(string query) =>
             string.IsNullOrWhiteSpace(query)
-            || $"{Name} {Serial} {Usage} {Department} {Location} {OsVersion}"
+            || $"{Name} {Serial} {Usage} {Catalog} {Department} {Location} {OsVersion}"
                 .Contains(query, StringComparison.OrdinalIgnoreCase);
     }
 
