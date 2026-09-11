@@ -38,12 +38,21 @@ public class StorageSummaryTests
         Assert.Equal("372.53 GB free of 931.32 GB", s);
     }
 
-    /// <summary>The Macs omit the flag on the built-in disk, so absent means internal.</summary>
-    [Fact]
-    public void AbsentInternalFlagCountsAsInternal()
+    /// <summary>
+    /// Only an explicit false excludes a drive. Measured across the fleet, the flag
+    /// is present but null on all 505 Mac entries and on 40 of the Windows ones,
+    /// against 394 true and 19 false -- so a rule written as "isInternal == true"
+    /// drops every Mac's boot disk and leaves those devices with no storage at all.
+    /// The null case is the one that actually occurs; absent is covered because
+    /// nothing guarantees the key.
+    /// </summary>
+    [Theory]
+    [InlineData("""{"capacity":1000000000000,"freeSpace":400000000000}""")]
+    [InlineData("""{"capacity":1000000000000,"freeSpace":400000000000,"isInternal":null}""")]
+    [InlineData("""{"capacity":1000000000000,"freeSpace":400000000000,"isInternal":true}""")]
+    public void OnlyAnExplicitFalseExcludesADrive(string disk)
     {
-        var s = Storage("""{"storage":[{"capacity":1000000000000,"freeSpace":400000000000}]}""");
-        Assert.Equal("372.53 GB free of 931.32 GB", s);
+        Assert.Equal("372.53 GB free of 931.32 GB", Storage($$"""{"storage":[{{disk}}]}"""));
     }
 
     [Theory]
