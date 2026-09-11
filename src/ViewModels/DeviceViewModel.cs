@@ -29,6 +29,23 @@ public partial class DeviceViewModel : ObservableObject
 
     public string LastSeenLabel => Snapshot.CollectedAt is null ? "never" : Format.RelativeTime(Snapshot.CollectedAt);
 
+    /// <summary>
+    /// Every module's collection time, newest first, for the Collected pill's
+    /// tooltip. Without it the pill's one number cannot be checked against the tab
+    /// actually on screen.
+    /// </summary>
+    public string? CollectionDetail
+    {
+        get
+        {
+            if (Snapshot.ModuleCollectedAt.Count == 0) return null;
+            var lines = Snapshot.ModuleCollectedAt
+                .OrderByDescending(m => m.Value)
+                .Select(m => $"{m.Key}: {Format.RelativeTime(m.Value)}");
+            return string.Join(Environment.NewLine, lines);
+        }
+    }
+
     /// <summary>Missing after 72 hours without a run, stale after 24, matching the web pills.</summary>
     public string? StatusPill
     {

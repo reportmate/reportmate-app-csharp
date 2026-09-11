@@ -133,8 +133,12 @@ public partial class DevicePage : Page
         if (!string.IsNullOrWhiteSpace(_vm.AssetTag)) Add(Ui.CopyPill(_vm.AssetTag, "Click to copy asset tag"));
         if (!string.IsNullOrWhiteSpace(_vm.SerialNumber)) Add(Ui.CopyPill(_vm.SerialNumber, "Click to copy serial number"));
         if (!string.IsNullOrWhiteSpace(_vm.IpAddress)) Add(Ui.CopyPill(_vm.IpAddress!, "Click to copy IP address"));
+        // The newest module's time, with every module's time behind it. The modules
+        // run on different schedules, so one number here described the page as
+        // fresher than most of what it was showing -- and after the event.json
+        // fallback a module can legitimately be a day older than its neighbours.
         var seen = Ui.Pill($"Collected {_vm.LastSeenLabel}");
-        seen.ToolTip = _vm.Snapshot.CollectedAt is null ? null : Format.ExactTime(_vm.Snapshot.CollectedAt);
+        seen.ToolTip = _vm.CollectionDetail;
         Add(seen);
         if (_vm.StatusPill is { } status)
             Add(Ui.Pill(status, status == "Missing" ? Tone.Error : Tone.Warning));

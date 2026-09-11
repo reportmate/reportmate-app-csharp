@@ -32,6 +32,21 @@ public sealed class DeviceSnapshot
     /// <summary>Most recent module write across the snapshot: the local "last seen".</summary>
     public DateTime? CollectedAt => ModuleCollectedAt.Count == 0 ? null : ModuleCollectedAt.Values.Max();
 
+    /// <summary>
+    /// The oldest module's collection time. The pair matters because the modules run
+    /// on different schedules and one page shows all of them: applications and
+    /// peripherals are every four hours, hardware's deep scan is daily, and a module
+    /// whose file the runner never wrote is read from an older run's event.json. A
+    /// single "collected" time taken from the newest module describes the page as
+    /// fresher than most of what is on it.
+    /// </summary>
+    public DateTime? OldestCollectedAt =>
+        ModuleCollectedAt.Count == 0 ? null : ModuleCollectedAt.Values.Min();
+
+    /// <summary>When one module was collected, for the tab that renders it.</summary>
+    public DateTime? CollectedAtFor(string moduleId) =>
+        ModuleCollectedAt.TryGetValue(moduleId, out var when) ? when : null;
+
     public bool IsEmpty => Inventory is null && System is null && Hardware is null && Management is null
         && Installs is null && Security is null && Identity is null && Network is null
         && Peripherals is null && Applications is null;
