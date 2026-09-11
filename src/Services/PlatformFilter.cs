@@ -66,4 +66,17 @@ public static class PlatformFilter
         PlatformScope.Mac => "macOS",
         _ => null,
     };
+
+    /// <summary>
+    /// Whether a device row is in scope. Reads platform, then osName: a row that
+    /// carries only one of the two is still an answer, and which one it carries
+    /// varies by how the device was registered.
+    /// </summary>
+    public static bool Includes(FleetDevice device) =>
+        _current == PlatformScope.All
+        || Includes(device.Platform) || Includes(device.OsName);
+
+    /// <summary>The devices in scope, in their original order.</summary>
+    public static List<FleetDevice> Apply(IEnumerable<FleetDevice> devices) =>
+        _current == PlatformScope.All ? devices.ToList() : devices.Where(Includes).ToList();
 }

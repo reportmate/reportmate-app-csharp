@@ -24,7 +24,10 @@ public sealed class DevicesPage : FleetPage
             return panel;
         }
 
-        var devices = result.Data!.Devices;
+        // Narrowed by the toolbar's platform toggle, as on the web. This is the
+        // page where an unfiltered list is most obviously wrong: the count in the
+        // subtitle would disagree with every report the toggle does narrow.
+        var devices = PlatformFilter.Apply(result.Data!.Devices);
         var page = new StackPanel();
         page.Children.Add(Ui.TabHeader("Devices", "Every device reporting to ReportMate", "", Accent.Blue,
             Ui.Caption($"{devices.Count:N0} devices")));
