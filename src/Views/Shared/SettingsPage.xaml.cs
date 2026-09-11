@@ -56,10 +56,18 @@ public partial class SettingsPage : Page
     private void OnPassphraseChanged(object sender, RoutedEventArgs e) => _vm.Passphrase = PassphraseBox.Password;
 
     /// <summary>
-    /// The fleet's own settings, which every client sees the same way. They are
-    /// presented read-only: this app is a reader, and an editor here would be the
-    /// only writer of a document the web app owns the schema for.
+    /// The fleet's own settings, which every client sees the same way.
     /// </summary>
+    /// <remarks>
+    /// Read-only, and not as a style choice: GET /api/v1/settings takes
+    /// <c>verify_authentication</c>, which the fleet passphrase satisfies, while PUT
+    /// takes <c>require_internal_secret</c>. The API's own docstring for the write
+    /// path says "Restricted to internal-service callers (the Next.js proxy, which
+    /// enforces the admin role). The fleet passphrase and managed identities cannot
+    /// reach this." So a native editor could not save even if it drew one, unless it
+    /// carried the internal secret -- which would put the credential that gates
+    /// fleet-wide writes on every admin's desktop.
+    /// </remarks>
     private async Task LoadFleetSettingsAsync()
     {
         foreach (var body in new[] { InventoryBody, SecurityBody, KioskBody, MaintenanceBody })
@@ -163,26 +171,37 @@ public partial class SettingsPage : Page
     }
 
     /// <summary>
-    /// The web's Maintenance section runs destructive fleet-wide operations --
-    /// clearing install errors, reclassifying installs, resetting usage baselines.
-    /// They are named here rather than wired up: a desktop client is the wrong place
-    /// to fire one by accident, and none of them has a confirmation story yet.
+    /// The three operations the web's Maintenance section runs, named rather than
+    /// wired.
     /// </summary>
+    /// <remarks>
+    /// Not wired because of where the authorisation lives. The web gates this
+    /// section on an Entra role, <c>useHasRole(ADMIN_ROLE)</c>, but that check is in
+    /// the page; the API behind it takes <c>verify_authentication</c>, which the
+    /// fleet passphrase satisfies. So the role is enforced by the web UI and not by
+    /// the endpoint, and a desktop client holding a read passphrase would reach
+    /// DELETE /api/v1/device/{serial} -- a permanent deletion of a device and all
+    /// its data -- with no role check anywhere in the path.
+    ///
+    /// That is a question about the API's authorisation rather than about this page,
+    /// so this app declines to be the client that exercises it.
+    /// </remarks>
     private void Maintenance()
     {
         MaintenanceBody.Children.Add(Ui.Text("Maintenance", "SectionHeaderStyle"));
         var sub = Ui.Caption(
-            "Fleet maintenance runs from the web app. These operations change data for "
-            + "every device and are deliberately not available here.");
+            "Fleet maintenance runs from the web app, which gates it on an administrator "
+            + "role. These operations delete data permanently and are deliberately not "
+            + "available here.");
         sub.TextWrapping = TextWrapping.Wrap;
         sub.Margin = new Thickness(0, 2, 0, 10);
         MaintenanceBody.Children.Add(sub);
 
         foreach (var item in new[]
                  {
-                     "Clear stale install errors",
-                     "Reclassify install statuses",
-                     "Reset usage-history baselines",
+                     "Clear stale install errors and warnings, older than a chosen age",
+                     "Delete one device, by serial number",
+                     "Bulk delete devices, up to 100 at a time",
                  })
         {
             var row = Ui.Caption("· " + item);
