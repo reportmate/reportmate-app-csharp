@@ -32,9 +32,30 @@ public static class HardwareWidget
             Ui.Stat("Processor", processor),
             Ui.Stat("Graphics", graphics),
             Ui.Stat("Memory", memory),
-            Ui.Stat("Storage", storage));
+            Ui.Stat("Storage", storage),
+            // The web shows the NPU and this did not. It is the part of a recent
+            // machine that distinguishes it -- this host reports an AMD "NPU Compute
+            // Accelerator Device" -- and it is only drawn when one is reported, so
+            // an older machine's card is unchanged rather than carrying a row that
+            // says Unknown.
+            Npu(hw.Npu));
 
-        return Ui.StatBlock("Hardware", "Device specs", "", Accent.Orange, body);
+        return Ui.StatBlock("Hardware", "Device specs", "", Accent.Orange, body);
+    }
+
+    private static UIElement? Npu(NpuInfo? npu)
+    {
+        if (npu is null || string.IsNullOrWhiteSpace(npu.Name)) return null;
+        var name = npu.Name.Trim();
+        var mfg = (npu.Manufacturer ?? "").Trim();
+        // "AMD NPU Compute Accelerator Device", not "AMD AMD NPU..." -- the same
+        // doubled-vendor problem the graphics name already guards against.
+        if (mfg.Length > 0 && !name.StartsWith(mfg, StringComparison.OrdinalIgnoreCase))
+            name = $"{mfg} {name}";
+        // TOPS is the number anyone comparing NPUs actually wants, and it is zero
+        // on hardware that does not report it, so it only appears when real.
+        if (npu.ComputeUnits > 0) name = $"{name} ({npu.ComputeUnits:0.#} TOPS)";
+        return Ui.Stat("NPU", name);
     }
 
     public static string CleanGraphicsName(string? name, string? manufacturer)
