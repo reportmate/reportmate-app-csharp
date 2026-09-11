@@ -22,7 +22,10 @@ public sealed class DashboardPage : FleetPage
         if (!result.Ok) return FleetUnavailable(result.Status, result.Detail);
 
         var data = result.Data!;
-        var devices = data.Devices;
+        // The toolbar's platform toggle is global, and the web applies it to every
+        // widget on this page. Leaving the dashboard unfiltered made the control
+        // look broken on the one page everybody lands on first.
+        var devices = PlatformFilter.Apply(data.Devices);
 
         var page = new StackPanel();
         page.Children.Add(Ui.TabHeader("Dashboard", "Fleet status at a glance", "", Accent.Blue,
@@ -31,8 +34,8 @@ public sealed class DashboardPage : FleetPage
         var left = new StackPanel();
         Stack(left, StatusWidget(devices));
         Stack(left, Ui.Columns(2, 14,
-            CounterCard("Errors", data.InstallStats?.TotalErrorItems ?? 0, data.InstallStats?.DevicesWithErrors ?? 0, Tone.Error),
-            CounterCard("Warnings", data.InstallStats?.TotalWarningItems ?? 0, data.InstallStats?.DevicesWithWarnings ?? 0, Tone.Warning)));
+            CounterCard("Errors", Errors(data.InstallStats), Tone.Error),
+            CounterCard("Warnings", Warnings(data.InstallStats), Tone.Warning)));
         Stack(left, NewClientsWidget(devices));
 
         var right = new StackPanel();
@@ -75,8 +78,29 @@ public sealed class DashboardPage : FleetPage
         return Ui.StatBlock("Fleet Status", "Seen in the last 24 hours", "", Accent.Green, Pad(body));
     }
 
-    private static UIElement CounterCard(string title, int total, int deviceCount, Tone tone)
+    /// <summary>
+    /// The counters are pre-aggregated by the API, so the platform scope picks a
+    /// different pair of fields rather than filtering rows. Cimian reports the
+    /// Windows items and Munki the macOS ones, and the API keeps them separable
+    /// precisely so this toggle can work without re-counting.
+    /// </summary>
+    private static (int Items, int Devices) Errors(InstallStats? s) => s is null ? (0, 0) : PlatformFilter.Current switch
     {
+        PlatformScope.Windows => (s.WinErrorItems, s.WinDevicesWithErrors),
+        PlatformScope.Mac => (s.MacErrorItems, s.MacDevicesWithErrors),
+        _ => (s.TotalErrorItems, s.DevicesWithErrors),
+    };
+
+    private static (int Items, int Devices) Warnings(InstallStats? s) => s is null ? (0, 0) : PlatformFilter.Current switch
+    {
+        PlatformScope.Windows => (s.WinWarningItems, s.WinDevicesWithWarnings),
+        PlatformScope.Mac => (s.MacWarningItems, s.MacDevicesWithWarnings),
+        _ => (s.TotalWarningItems, s.DevicesWithWarnings),
+    };
+
+    private static UIElement CounterCard(string title, (int Items, int Devices) counts, Tone tone)
+    {
+        var (total, deviceCount) = counts;
         var body = new StackPanel();
         var n = Ui.Text(total.ToString("N0"), "StatValueStyle", Ui.StatusBrush(tone));
         n.FontSize = 30;
