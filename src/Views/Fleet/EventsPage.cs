@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using ReportMate.App.Services;
@@ -34,6 +35,7 @@ public sealed class EventsPage : FleetPage
                 Kind = Format.Capitalize(NormalizeKind(e.Kind ?? e.EventType)),
                 RawKind = NormalizeKind(e.Kind ?? e.EventType),
                 KindTone = Classify(e.Kind ?? e.EventType),
+                Id = e.Id ?? "",
                 Device = e.DeviceName ?? e.SerialNumber ?? e.Device ?? "",
                 Message = e.Message ?? "",
                 When = e.When,
@@ -62,6 +64,7 @@ public sealed class EventsPage : FleetPage
                 new("system", "System", rows.Count(r => r.Kinds("system"))),
                 new("info", "Info", rows.Count(r => r.Kinds("info"))),
             ], (r, k) => k == "all" || r.Kinds(k), initial: InitialFilter())
+            .WithDetails(Details)
             .WithQuery(Filter("q"))
             .Build();
 
@@ -93,6 +96,75 @@ public sealed class EventsPage : FleetPage
     }
 
     /// <summary>
+    /// What actually happened in the run this event describes: which items failed,
+    /// which warned, which installed.
+    /// </summary>
+    /// <remarks>
+    /// The list endpoint carries the message but not the payload, so this is one
+    /// fetch per row opened. That is the right shape rather than a compromise: the
+    /// payloads are large, almost none of them are ever looked at, and a page that
+    /// pulled every one would move megabytes to render a table of one-line
+    /// summaries.
+    /// </remarks>
+    private UIElement Details(EventRow row)
+    {
+        var host = new StackPanel { Margin = new Thickness(14, 4, 14, 14) };
+        if (row.Id.Length == 0)
+        {
+            host.Children.Add(Ui.Caption("This event carries no identifier, so its payload cannot be fetched."));
+            return host;
+        }
+
+        host.Children.Add(Ui.Caption("Loading payload..."));
+        _ = Fill(host, row.Id);
+        return host;
+    }
+
+    private static async Task Fill(StackPanel host, string id)
+    {
+        var result = await FleetApiClient.Instance.GetRawAsync(
+            $"/api/v1/events/{Uri.EscapeDataString(id)}/payload");
+        host.Children.Clear();
+
+        if (!result.Ok)
+        {
+            host.Children.Add(Ui.Caption($"The payload could not be loaded ({result.Status})."));
+            return;
+        }
+
+        var root = result.Data!.RootElement;
+        var payload = root.ValueKind == JsonValueKind.Object && root.TryGetProperty("payload", out var p)
+            ? p : root;
+        var details = EventPayload.Extract(payload);
+
+        if (details.Count == 0)
+        {
+            host.Children.Add(Ui.Caption("This event's payload carries no item detail."));
+            return;
+        }
+
+        Section(host, "Failed", details.Errors, Tone.Error);
+        Section(host, "Warnings", details.Warnings, Tone.Warning);
+        Section(host, "Installed", details.Successes, Tone.Success);
+        Section(host, "Removed", details.Removed, Tone.Neutral);
+    }
+
+    private static void Section(StackPanel host, string title, IReadOnlyList<string> lines, Tone tone)
+    {
+        if (lines.Count == 0) return;
+        var header = Ui.Status($"{title} ({lines.Count:N0})", tone, 12, FontWeights.SemiBold);
+        header.Margin = new Thickness(0, host.Children.Count > 0 ? 10 : 0, 0, 4);
+        host.Children.Add(header);
+        foreach (var line in lines)
+        {
+            var text = Ui.Text(line, "BodyTextStyle");
+            text.TextWrapping = TextWrapping.Wrap;
+            text.Margin = new Thickness(0, 0, 0, 2);
+            host.Children.Add(text);
+        }
+    }
+
+    /// <summary>
     /// The kind this event filters under. data_collection is the runner's own
     /// routine upload and reads as info everywhere else in the product, so it is
     /// folded in rather than given a filter of its own that would almost always
@@ -117,6 +189,7 @@ public sealed class EventsPage : FleetPage
 
     private sealed class EventRow
     {
+        public string Id { get; init; } = "";
         public string Kind { get; init; } = "";
         public string RawKind { get; init; } = "";
         public Tone KindTone { get; init; }

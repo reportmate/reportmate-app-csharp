@@ -116,6 +116,30 @@ public static class Table
         return grid;
     }
 
+    /// <summary>
+    /// Make a row expand when clicked, showing whatever <paramref name="build"/>
+    /// returns for it.
+    /// </summary>
+    /// <remarks>
+    /// The factory has to return immediately, because this runs while the row is
+    /// being realised. Anything that needs fetching returns a placeholder and
+    /// fills itself in, which is also what keeps virtualization intact: only the
+    /// rows someone actually opens ever load anything.
+    /// </remarks>
+    public static void RowDetails(DataGrid grid, Func<object, UIElement> build)
+    {
+        grid.RowDetailsVisibilityMode = DataGridRowDetailsVisibilityMode.VisibleWhenSelected;
+        grid.RowDetailsTemplate = new DataTemplate
+        {
+            VisualTree = new FrameworkElementFactory(typeof(ContentControl)),
+        };
+        grid.LoadingRowDetails += (_, e) =>
+        {
+            if (e.DetailsElement is ContentControl host && e.Row.Item is { } item)
+                host.Content = build(item);
+        };
+    }
+
     /// <summary>Grid inside a card, with an empty-state line when there are no rows.</summary>
     public static UIElement Card(string title, string? subtitle, IList rows, UIElement? headerRight = null, string empty = "Nothing to show", params Col[] columns)
     {
@@ -349,6 +373,7 @@ public sealed class FilteredTable<T> : ContentControl
     private readonly string _searchPlaceholder;
     private readonly string _emptyMessage;
     private readonly Func<IEnumerable<T>, IEnumerable<T>>? _order;
+    private Func<T, UIElement>? _details;
 
     /// <param name="subtitleFormat">Use {0} for shown count and {1} for total.</param>
     public FilteredTable(string title, string subtitleFormat, IReadOnlyList<T> rows, Func<T, string, bool> search, Col[] columns,
@@ -369,6 +394,16 @@ public sealed class FilteredTable<T> : ContentControl
     /// Open with a search already applied, so a link can reopen the exact view it was
     /// copied from rather than the unfiltered table.
     /// </summary>
+    /// <summary>
+    /// Expand a row on click. Applied on every refresh, because filtering and
+    /// searching rebuild the grid.
+    /// </summary>
+    public FilteredTable<T> WithDetails(Func<T, UIElement> build)
+    {
+        _details = build;
+        return this;
+    }
+
     public FilteredTable<T> WithQuery(string? query)
     {
         if (!string.IsNullOrWhiteSpace(query)) _query = query;
@@ -420,6 +455,13 @@ public sealed class FilteredTable<T> : ContentControl
         if (_order is not null) rows = _order(rows);
         var list = rows.ToList();
         _subtitle.Text = string.Format(_subtitleFormat, list.Count, _all.Count);
-        _body.Content = list.Count == 0 ? Ui.EmptyState(_emptyMessage) : Table.Build(list, _columns);
+        if (list.Count == 0)
+        {
+            _body.Content = Ui.EmptyState(_emptyMessage);
+            return;
+        }
+        var grid = Table.Build(list, _columns);
+        if (_details is { } build) Table.RowDetails(grid, item => build((T)item));
+        _body.Content = grid;
     }
 }
