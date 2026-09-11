@@ -86,13 +86,15 @@ public sealed class DevicesPage : FleetPage
                 Col.Text("OS", "OsVersion", 130),
                 Col.Text("Usage", "Usage", 120),
                 Col.Text("Location", "Location", 130),
-                Col.Text("Last Seen", "LastSeenLabel", 130),
+                // Sorted by the timestamp, not by the words. "3d ago", "5h ago" and
+                // "just now" sort lexically into an order with no meaning, on the
+                // one column a devices list is most often ordered by.
+                Col.Text("Last Seen", "LastSeenLabel", 130, sortBy: "LastSeen"),
             ], "Search devices...", "No devices match the current filters")
-            .Filter([
-                new("all", "All", rows.Count),
-                new("windows", "Windows", rows.Count(r => r.Platform == "Windows")),
-                new("macos", "macOS", rows.Count(r => r.Platform == "macOS")),
-            ], (r, k) => k switch { "windows" => r.Platform == "Windows", "macos" => r.Platform == "macOS", _ => true })
+            // No platform filter here. The toolbar's scope already narrowed these
+            // rows, and a second three-way platform control on the same page can
+            // disagree with it -- toolbar on Windows and this on macOS gives an
+            // empty table with nothing on screen explaining why.
             .Filter([
                 new("all", "Any status", rows.Count),
                 new("active", "Active", rows.Count(r => r.Liveness == DeviceLiveness.Active)),
