@@ -26,6 +26,7 @@
     <Compile Include="..\..\src\Views\Fleet\InstallLabel.cs" Link="InstallLabel.cs" />
     <Compile Include="..\..\src\Views\Fleet\FailureReason.cs" Link="FailureReason.cs" />
     <Compile Include="..\..\src\Views\Fleet\EventPayload.cs" Link="EventPayload.cs" />
+    <Compile Include="..\..\src\Services\Format.cs" Link="Format.cs" />
     <Compile Include="..\..\src\Services\DeviceSnapshot.cs" Link="DeviceSnapshot.cs" />
     <Compile Include="..\..\src\Services\DeviceSnapshotStore.cs" Link="DeviceSnapshotStore.cs" />
     <!-- The module models reference each other, so they come in as the one set. -->
