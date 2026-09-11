@@ -96,16 +96,16 @@ public partial class SettingsPage : Page
 
         Section(InventoryBody, "Inventory Mapping",
             "How device fields map onto the inventory the fleet reports.",
-            value?.Inventory, stamp);
+            value?.Inventory, stamp, "inventory");
         Section(SecurityBody, "Security Rules",
             "The rules the fleet's security reporting is measured against.",
-            value?.Security, stamp);
+            value?.Security, stamp, "rules");
         Kiosk(value?.Kiosk, stamp);
         Maintenance();
     }
 
     private static void Section(StackPanel body, string title, string blurb,
-        System.Text.Json.JsonElement? content, string? stamp)
+        System.Text.Json.JsonElement? content, string? stamp, string section)
     {
         body.Children.Add(Ui.Text(title, "SectionHeaderStyle"));
         var sub = Ui.Caption(blurb);
@@ -118,6 +118,7 @@ public partial class SettingsPage : Page
         if (content is null or { ValueKind: System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined })
         {
             body.Children.Add(Ui.EmptyState($"No {title.ToLowerInvariant()} are configured for this fleet."));
+            OpenInWeb(body, section);
             return;
         }
 
@@ -135,6 +136,7 @@ public partial class SettingsPage : Page
         };
         body.Children.Add(text);
         if (stamp is not null) body.Children.Add(Stamp(stamp));
+        OpenInWeb(body, section);
     }
 
     private void Kiosk(KioskSettings? kiosk, string? stamp)
@@ -148,6 +150,7 @@ public partial class SettingsPage : Page
         if (kiosk is null)
         {
             KioskBody.Children.Add(Ui.EmptyState("No kiosk display is configured for this fleet."));
+            OpenInWeb(KioskBody, "general");
             return;
         }
 
@@ -168,6 +171,7 @@ public partial class SettingsPage : Page
         }
 
         if (stamp is not null) KioskBody.Children.Add(Stamp(stamp));
+        OpenInWeb(KioskBody, "general");
     }
 
     /// <summary>
@@ -208,6 +212,27 @@ public partial class SettingsPage : Page
             row.Margin = new Thickness(0, 0, 0, 4);
             MaintenanceBody.Children.Add(row);
         }
+
+        OpenInWeb(MaintenanceBody, "maintenance");
+    }
+
+    /// <summary>
+    /// A link to the same section in the web app, which is where these are edited.
+    /// A read-only pane that does not say where the switch is just looks broken.
+    /// </summary>
+    private static void OpenInWeb(StackPanel body, string section)
+    {
+        var web = ConfigManager.Instance.WebDashboardUrl;
+        if (string.IsNullOrWhiteSpace(web)) return;
+
+        var link = new ModernWpf.Controls.HyperlinkButton
+        {
+            Content = "Edit in the web app",
+            NavigateUri = new Uri($"{web}/settings#{section}"),
+            Margin = new Thickness(-10, 10, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        body.Children.Add(link);
     }
 
     private static TextBlock Stamp(string text)
