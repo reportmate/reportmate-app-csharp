@@ -42,9 +42,17 @@ public sealed class DeviceSnapshotStore
     public IReadOnlyDictionary<string, string> ModuleErrors => _moduleErrors;
     private readonly Dictionary<string, string> _moduleErrors = new(StringComparer.OrdinalIgnoreCase);
 
-    public string CacheRoot { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "ManagedReports", "cache");
+    public string CacheRoot { get; }
+
+    /// <param name="cacheRoot">
+    /// Where the runner's cache lives. Defaults to the real location; a test passes
+    /// its own so the assembly rules here can be exercised against a cache laid out
+    /// on purpose rather than whatever this machine happens to have.
+    /// </param>
+    public DeviceSnapshotStore(string? cacheRoot = null) =>
+        CacheRoot = cacheRoot ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "ManagedReports", "cache");
 
     public Task<DeviceSnapshot> LoadAsync() => Task.Run(Load);
 
