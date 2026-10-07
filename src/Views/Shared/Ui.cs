@@ -72,11 +72,16 @@ public static partial class Ui
 
     // ── Layout ───────────────────────────────────────────────────────
 
-    public static StackPanel Stack(double spacing = 12, Orientation orientation = Orientation.Vertical, params UIElement[] children)
+    /// <summary>
+    /// Children in a row or column. A null child is left out, so a row that only
+    /// applies to some devices can be passed as a conditional expression.
+    /// </summary>
+    public static StackPanel Stack(double spacing = 12, Orientation orientation = Orientation.Vertical, params UIElement?[] children)
     {
         var panel = new StackPanel { Orientation = orientation };
         foreach (var child in children)
         {
+            if (child is null) continue;
             if (child is FrameworkElement fe && panel.Children.Count > 0)
                 fe.Margin = orientation == Orientation.Vertical
                     ? new Thickness(fe.Margin.Left, spacing, fe.Margin.Right, fe.Margin.Bottom)
@@ -86,8 +91,8 @@ public static partial class Ui
         return panel;
     }
 
-    public static StackPanel VStack(params UIElement[] children) => Stack(12, Orientation.Vertical, children);
-    public static StackPanel HStack(params UIElement[] children) => Stack(8, Orientation.Horizontal, children);
+    public static StackPanel VStack(params UIElement?[] children) => Stack(12, Orientation.Vertical, children);
+    public static StackPanel HStack(params UIElement?[] children) => Stack(8, Orientation.Horizontal, children);
 
     /// <summary>Equal-width columns with a gap; each child fills one column in order.</summary>
     public static Grid Columns(int count, double gap, params UIElement?[] children)
