@@ -12,6 +12,9 @@ public partial class SettingsPage : Page
 
     public SettingsPage()
     {
+        // Before InitializeComponent, so the markup's StaticResource references resolve
+        // when the dashboard carries its own resources.
+        DashboardResources.Adopt(this);
         InitializeComponent();
         DataContext = _vm;
         _vm.Load();

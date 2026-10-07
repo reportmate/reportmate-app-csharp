@@ -37,7 +37,7 @@ public partial class App : Application
 
         // Follow the OS light/dark preference; ModernWpf swaps the theme dictionaries.
         ThemeManager.Current.ApplicationTheme = null;
-        var window = new Views.Shared.MainWindow();
+        var window = new Views.MainWindow();
         MainWindow = window;
         window.Show();
 

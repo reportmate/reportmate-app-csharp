@@ -142,7 +142,7 @@ public sealed class DevicesPage : FleetPage
         card.Cursor = System.Windows.Input.Cursors.Hand;
         card.MouseLeftButtonUp += (s, _) =>
         {
-            if (Window.GetWindow((DependencyObject)s) is MainWindow main) main.NavigateTo("device");
+            DashboardView.Containing((DependencyObject)s)?.NavigateTo("device");
         };
         return card;
     }

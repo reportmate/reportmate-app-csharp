@@ -59,7 +59,7 @@ public abstract class FleetPage : Page
         _loading = true;
         try
         {
-            Link ??= Views.Shared.MainWindow.TakePendingLink();
+            Link ??= Views.Shared.DashboardView.TakePendingLink();
             if (_scroll.Content is null) _scroll.Content = Loading();
             var body = await BuildAsync();
             _scroll.Content = body;

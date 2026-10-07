@@ -1,0 +1,22 @@
+<Application x:Class="ReportMate.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.modernwpf.com/2019">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Layered surfaces matching the web app's gray-50 / white (light) and
+                     black / gray-900 / gray-800 (dark) palette. The custom brushes must sit
+                     inside ThemeResources' own dictionaries to be theme-resolved. -->
+                <ui:ThemeResources>
+                    <ui:ThemeResources.ThemeDictionaries>
+                        <ResourceDictionary x:Key="Light" Source="pack://application:,,,/ReportMate.UI;component/Themes/Palette.Light.xaml" />
+                        <ResourceDictionary x:Key="Dark" Source="pack://application:,,,/ReportMate.UI;component/Themes/Palette.Dark.xaml" />
+                    </ui:ThemeResources.ThemeDictionaries>
+                </ui:ThemeResources>
+                <ui:XamlControlsResources />
+                <ResourceDictionary Source="pack://application:,,,/ReportMate.UI;component/Themes/Styles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

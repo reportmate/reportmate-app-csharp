@@ -30,6 +30,9 @@ public partial class DevicePage : Page
 
     public DevicePage()
     {
+        // Before InitializeComponent, so the markup's StaticResource references resolve
+        // when the dashboard carries its own resources.
+        DashboardResources.Adopt(this);
         InitializeComponent();
         BuildTabStrip();
         Loaded += async (_, _) =>
