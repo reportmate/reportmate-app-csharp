@@ -118,11 +118,24 @@ public sealed class FleetApiClient
     private static string? FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
+    /// <summary>
+    /// A bearer token for the fleet reads, from an app that embeds the dashboard and
+    /// has already signed its user in. When it returns a token, that token is sent in
+    /// place of the device's read credential; when it returns null, or none is set,
+    /// the device's credential is used as before.
+    /// </summary>
+    public static Func<CancellationToken, Task<string?>>? BearerTokenProvider { get; set; }
+
     private async Task<FleetResult<T>> GetAsync<T>(string path, CancellationToken ct) where T : class
     {
         var config = ConfigManager.Instance.Config;
         if (string.IsNullOrWhiteSpace(config.ApiUrl))
             return new FleetResult<T>(FleetStatus.NotConfigured, null, "No API URL is configured for this device.");
+
+        var bearer = BearerTokenProvider is { } provider ? await provider(ct) : null;
+        if (!string.IsNullOrWhiteSpace(bearer))
+            return await SendAsync<T>(config.ApiUrl.TrimEnd('/') + path,
+                request => request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer), ct);
 
         // The runner's ApiKey is a per-client INGEST credential and the API's scope gate
         // refuses it for every read. Sending it anyway would turn a device that has only
@@ -134,12 +147,19 @@ public sealed class FleetApiClient
                 "This device has no read credential. The runner's API key can report data in "
                 + "but cannot read the fleet back out.");
 
-        var url = config.ApiUrl.TrimEnd('/') + path;
+        return await SendAsync<T>(config.ApiUrl.TrimEnd('/') + path, request =>
+        {
+            if (!string.IsNullOrWhiteSpace(config.ReadApiKey))
+                request.Headers.TryAddWithoutValidation("X-API-Key", config.ReadApiKey);
+            else
+                request.Headers.TryAddWithoutValidation("X-Client-Passphrase", config.Passphrase);
+        }, ct);
+    }
+
+    private static async Task<FleetResult<T>> SendAsync<T>(string url, Action<HttpRequestMessage> authorize, CancellationToken ct) where T : class
+    {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        if (!string.IsNullOrWhiteSpace(config.ReadApiKey))
-            request.Headers.TryAddWithoutValidation("X-API-Key", config.ReadApiKey);
-        else
-            request.Headers.TryAddWithoutValidation("X-Client-Passphrase", config.Passphrase);
+        authorize(request);
 
         try
         {

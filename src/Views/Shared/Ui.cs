@@ -23,9 +23,10 @@ public enum Tone { Neutral, Success, Warning, Error, Info, Purple, Orange }
 public static partial class Ui
 {
     public static Brush Brush(string key) =>
-        Application.Current.TryFindResource(key) as Brush ?? Brushes.Transparent;
+        DashboardResources.TryFind(key) as Brush ?? Brushes.Transparent;
 
-    public static object Res(string key) => Application.Current.FindResource(key);
+    public static object Res(string key) =>
+        DashboardResources.TryFind(key) ?? throw new ResourceReferenceKeyNotFoundException($"'{key}' resource not found.", key);
 
     // ── Text ─────────────────────────────────────────────────────────
 

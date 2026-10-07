@@ -1,42 +1,29 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    The dashboard itself: every page, view model and service. The ReportMate app in
+    app/ is a window around DashboardView, and another WPF app can host the same
+    view to embed the dashboard (see "Embedding the dashboard" in the README).
+  -->
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
+    <OutputType>Library</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <RootNamespace>ReportMate.App</RootNamespace>
-    <!--
-      Named for what it is now. "Managed Reports Runner" described a local runner
-      console, which this stopped being when it became the fleet dashboard, and the
-      runner it was named after is a different executable in another repository.
-    -->
-    <AssemblyName>ReportMate</AssemblyName>
-    <AssemblyTitle>ReportMate</AssemblyTitle>
+    <AssemblyName>ReportMate.UI</AssemblyName>
+    <AssemblyTitle>ReportMate UI</AssemblyTitle>
     <Product>ReportMate</Product>
-    <Description>Native Windows dashboard for ReportMate - fleet views and the report for this device</Description>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon Condition="Exists('Assets\ReportMate.ico')">Assets\ReportMate.ico</ApplicationIcon>
-    <StartupObject>ReportMate.App.Program</StartupObject>
+    <Description>The ReportMate dashboard's pages and services, hostable in any WPF window</Description>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
-    <PublishTrimmed>false</PublishTrimmed>
     <NoWarn>$(NoWarn);MVVMTK0045;NU1900;CS0618</NoWarn>
     <VersionPrefix Condition="'$(VersionPrefix)' == ''">$([System.DateTime]::Now.ToString("yyyy.MM.dd.HHmm"))</VersionPrefix>
     <AssemblyVersion>$(VersionPrefix)</AssemblyVersion>
     <FileVersion>$(VersionPrefix)</FileVersion>
     <InformationalVersion>$(VersionPrefix)</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
-  </PropertyGroup>
-
-  <!-- Self-contained single-file output only when a runtime is chosen (publish -r win-x64
-       or win-arm64); a plain build stays framework-dependent so it compiles on any host. -->
-  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
-    <SelfContained>true</SelfContained>
-    <PublishSingleFile>true</PublishSingleFile>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -63,9 +50,6 @@
     <PackageReference Include="ModernWpfUI" Version="0.9.6" />
   </ItemGroup>
 
-  <ItemGroup Condition="Exists('Assets\ReportMate.ico')">
-    <Resource Include="Assets\ReportMate.ico" />
-  </ItemGroup>
   <ItemGroup Condition="Exists('Assets\ReportMate.png')">
     <Resource Include="Assets\ReportMate.png" />
   </ItemGroup>

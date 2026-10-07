@@ -106,7 +106,7 @@ foreach ($arch in $architectures) {
     Write-Host "=== $arch ==="
 
     # ── Publish ─────────────────────────────────────────────────────────
-    dotnet publish (Join-Path $root 'src\ReportMate.App.csproj') `
+    dotnet publish (Join-Path $root 'app\ReportMate.App.csproj') `
         --configuration $Configuration `
         --runtime "win-$arch" `
         --self-contained true `
@@ -116,7 +116,7 @@ foreach ($arch in $architectures) {
         -p:VersionPrefix=$Version
     if ($LASTEXITCODE -ne 0) { throw "Publish failed for $arch with exit code $LASTEXITCODE" }
 
-    $publishDir = Join-Path $root "src\bin\$Configuration\net10.0-windows\win-$arch\publish"
+    $publishDir = Join-Path $root "app\bin\$Configuration\net10.0-windows\win-$arch\publish"
     $appExe = Get-ChildItem -Path $publishDir -Filter '*.exe' | Sort-Object Length -Descending | Select-Object -First 1
     if (-not $appExe) { throw "No executable was produced in $publishDir" }
     Write-Host ("Published {0} ({1:N1} MB)" -f $appExe.Name, ($appExe.Length / 1MB))

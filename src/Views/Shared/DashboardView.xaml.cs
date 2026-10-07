@@ -9,7 +9,12 @@ using ReportMate.App.Views.Fleet;
 
 namespace ReportMate.App.Views.Shared;
 
-public partial class MainWindow : Window
+/// <summary>
+/// The ReportMate dashboard: the header -- platform scope, device search, section
+/// tabs, settings -- over the page it navigates between. The ReportMate app shows
+/// it as its window's content; another WPF app can host it to embed the dashboard.
+/// </summary>
+public partial class DashboardView : UserControl
 {
     private readonly Dictionary<string, Page> _pages = new();
 
@@ -22,8 +27,19 @@ public partial class MainWindow : Window
     private bool _reportsInline;
     private string _current = "dashboard";
 
-    public MainWindow()
+    /// <summary>The dashboard reading its palette and styles from the application's resources.</summary>
+    public DashboardView() : this(scopedResources: false) { }
+
+    /// <summary>
+    /// The dashboard, optionally carrying its own palette and styles. An app that
+    /// embeds it passes true: its own resources are left alone, and the dashboard
+    /// keeps a copy of its own on this view and the pages it shows. The host still
+    /// needs ModernWpf's ThemeResources and XamlControlsResources loaded.
+    /// </summary>
+    public DashboardView(bool scopedResources)
     {
+        if (scopedResources) DashboardResources.EnableScoped();
+        DashboardResources.Adopt(this);
         InitializeComponent();
 
         // The scope belongs to the window, so a page opened after it was set opens
@@ -42,7 +58,6 @@ public partial class MainWindow : Window
                 "failures" => "failures",
                 _ => "report:" + id,
             });
-        ProtocolHandler.LinkReceived += OpenDeepLink;
         SizeChanged += (_, _) => BuildTabs();
         BuildTabs();
         Navigate("dashboard");
@@ -73,6 +88,29 @@ public partial class MainWindow : Window
             AddTab("reports", "Reports", "");
 
         SyncChecked();
+    }
+
+    /// <summary>
+    /// Room left at the header's right edge for a window's caption buttons, when the
+    /// header is drawn in the title bar. Zero when hosted inside another window.
+    /// </summary>
+    public double CaptionButtonsWidth
+    {
+        get => TrailingItems.Margin.Right;
+        set => TrailingItems.Margin = new Thickness(8, 0, value, 0);
+    }
+
+    /// <summary>The dashboard an element is shown in, found by walking up the visual tree.</summary>
+    public static DashboardView? Containing(DependencyObject? element)
+    {
+        while (element is not null)
+        {
+            if (element is DashboardView view) return view;
+            element = element is System.Windows.Media.Visual
+                ? System.Windows.Media.VisualTreeHelper.GetParent(element) ?? LogicalTreeHelper.GetParent(element)
+                : LogicalTreeHelper.GetParent(element);
+        }
+        return null;
     }
 
     private void AddTab(string tag, string label, string? glyph)
@@ -125,7 +163,11 @@ public partial class MainWindow : Window
         // the cache or the change is invisible until the app restarts.
         if (force) _pages.Clear();
         _current = tag;
-        ContentFrame.Navigate(GetOrCreatePage(tag));
+        var page = GetOrCreatePage(tag);
+        // A Frame hands its pages straight to the application's resources, so when
+        // the dashboard carries its own, each page has to be given them.
+        DashboardResources.Adopt(page);
+        ContentFrame.Navigate(page);
     }
 
     /// <summary>Switch sections programmatically (a report card, or a device drill-down).</summary>
@@ -144,9 +186,6 @@ public partial class MainWindow : Window
     /// </summary>
     public void OpenDeepLink(DeepLink link)
     {
-        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
-        Activate();
-
         switch (link.Section)
         {
             case "settings":

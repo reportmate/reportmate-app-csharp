@@ -6,7 +6,9 @@ namespace ReportMate.App.Services;
 /// Configuration loader with fallback chain (highest → lowest priority):
 ///   1. Intune CSP / Group Policy (HKLM\SOFTWARE\Policies\ReportMate)
 ///   2. User-configured settings (HKLM\SOFTWARE\ReportMate\Settings)
-///   3. Default values
+///   3. The client's own configuration (HKLM\SOFTWARE\ReportMate)
+///   4. Defaults from an app that embeds the dashboard (<see cref="HostDefaults"/>)
+///   5. Default values
 /// </summary>
 public sealed class ConfigManager
 {
@@ -38,9 +40,20 @@ public sealed class ConfigManager
         ReloadSettings();
     }
 
+    /// <summary>
+    /// Connection defaults from an app that embeds the dashboard -- an API address it
+    /// already knows, say. Applied beneath every registry layer, so a device's own
+    /// configuration, this app's settings and policy all still win. Call
+    /// <see cref="ReloadSettings"/> after setting it.
+    /// </summary>
+    public static Action<ReportMateConfig>? HostDefaults { get; set; }
+
     public void ReloadSettings()
     {
         var config = new ReportMateConfig();
+
+        // Layer 0: what an embedding app supplies, beneath everything else.
+        HostDefaults?.Invoke(config);
 
         // Layer 1: the client's own configuration at the root key. This is what the
         // runner reads and what provisioning actually writes, so a device configured
