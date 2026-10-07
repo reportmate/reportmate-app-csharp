@@ -6,3 +6,5 @@ release/
 .vs/
 build/pkg/payload/
 build/pkg/build/
+
+/.worktrees/

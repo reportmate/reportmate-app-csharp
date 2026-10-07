@@ -1,14 +1,11 @@
-<Window x:Class="ReportMate.App.Views.Shared.MainWindow"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:ui="http://schemas.modernwpf.com/2019"
-        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
-        ui:WindowHelper.UseModernWindowStyle="True"
-        ui:TitleBar.ExtendViewIntoTitleBar="True"
-        Title="ReportMate"
-        Height="960" Width="1440" MinHeight="640" MinWidth="900"
-        WindowStartupLocation="CenterScreen">
+<UserControl x:Class="ReportMate.App.Views.Shared.DashboardView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.modernwpf.com/2019"
+             xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework">
 
+    <!-- The whole dashboard: header and pages. The ReportMate app's window draws it
+         into its own title bar; another WPF app can host it anywhere. -->
     <Grid Background="{DynamicResource AppBackgroundBrush}"
           TextElement.Foreground="{DynamicResource TextPrimaryBrush}">
         <Grid.RowDefinitions>
@@ -33,7 +30,7 @@
                      sitting on the header's own background. -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center"
                             Margin="2,0,10,0">
-                    <Image Source="pack://application:,,,/Assets/ReportMate.png"
+                    <Image Source="pack://application:,,,/ReportMate.UI;component/Assets/ReportMate.png"
                            Width="20" Height="20" Margin="0,0,8,0" />
                     <TextBlock Text="ReportMate" FontWeight="SemiBold" FontSize="13"
                                VerticalAlignment="Center" />
@@ -77,8 +74,10 @@
                     <StackPanel Orientation="Horizontal" x:Name="TabBar" />
                 </Border>
 
-                <StackPanel Grid.Column="4" Orientation="Horizontal"
-                            VerticalAlignment="Center" Margin="8,0,140,0">
+                <!-- The right margin clears the window's caption buttons when the
+                     header sits in a title bar; see CaptionButtonsWidth. -->
+                <StackPanel x:Name="TrailingItems" Grid.Column="4" Orientation="Horizontal"
+                            VerticalAlignment="Center" Margin="8,0,0,0">
                     <RadioButton x:Name="TabSettings" ToolTip="Settings"
                                  shell:WindowChrome.IsHitTestVisibleInChrome="True"
                                  Tag="Settings" GroupName="MainTabs" Checked="OnTabChecked"
@@ -91,4 +90,4 @@
 
         <Frame x:Name="ContentFrame" Grid.Row="1" NavigationUIVisibility="Hidden" />
     </Grid>
-</Window>
+</UserControl>

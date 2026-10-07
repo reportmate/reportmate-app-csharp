@@ -11,13 +11,42 @@ serves, and changes nothing on the device.
 
 | Path | What it is |
 |---|---|
-| `src/` | The WPF application |
+| `app/` | The ReportMate app: startup, the window, the `reportmate://` handler, the icon |
+| `src/` | The dashboard itself (`ReportMate.UI`): every page, view model and service |
 | `tests/` | Tests for the logic that has no UI dependency |
 | `client/` | The ReportMate Windows client, as a submodule, for the module data shapes |
 
 The module models are owned by the runner and read here, so they come from the
 client repository as a pinned submodule rather than a copy. A copy would drift,
 and this application exists to render exactly what the runner writes.
+
+## Embedding the dashboard
+
+The dashboard lives in `src/ReportMate.UI.csproj`, a WPF class library, and the app
+is a window around its root view. Another WPF app can host the same view to embed
+the whole dashboard:
+
+```csharp
+var dashboard = new ReportMate.App.Views.Shared.DashboardView(scopedResources: true);
+```
+
+With `scopedResources: true` the dashboard keeps its palette and styles on the view
+and the pages it shows, so the host's resources, including ones under the same keys,
+are left alone. The host must load ModernWpf's `ThemeResources` and
+`XamlControlsResources` in its own application resources; the dashboard follows the
+theme ModernWpf reports.
+
+Two hooks let the host supply what it already has. Both are optional:
+
+- `ConfigManager.HostDefaults` fills connection settings, such as the API address,
+  beneath the device's registry configuration, so the device, the app's settings and
+  policy all still take precedence. Call `ConfigManager.Instance.ReloadSettings()`
+  after setting it.
+- `FleetApiClient.BearerTokenProvider` returns a bearer token for the fleet reads,
+  for a host that has already signed its user in.
+
+`DashboardView.OpenDeepLink` opens the view a `reportmate://` link names. The host
+decides whether to register the protocol; the library never does.
 
 ## Building
 

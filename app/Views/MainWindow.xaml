@@ -1,0 +1,15 @@
+<Window x:Class="ReportMate.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.modernwpf.com/2019"
+        xmlns:shared="clr-namespace:ReportMate.App.Views.Shared;assembly=ReportMate.UI"
+        ui:WindowHelper.UseModernWindowStyle="True"
+        ui:TitleBar.ExtendViewIntoTitleBar="True"
+        Title="ReportMate"
+        Height="960" Width="1440" MinHeight="640" MinWidth="900"
+        WindowStartupLocation="CenterScreen">
+
+    <!-- The dashboard draws its header in the title bar, leaving room on the right
+         for the caption buttons. -->
+    <shared:DashboardView x:Name="Dashboard" CaptionButtonsWidth="140" />
+</Window>
