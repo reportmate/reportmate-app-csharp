@@ -12,13 +12,13 @@ public class FleetMissingSettingTests
     [Fact]
     public void NoAddressNamesTheApiUrl()
     {
-        Assert.Contains("API URL", FleetApiClient.MissingSetting(hasApiUrl: false, hostSignIn: false));
+        Assert.Contains("API URL", FleetSetupHints.MissingSetting(hasApiUrl: false, hostSignIn: false));
     }
 
     [Fact]
     public void NoCredentialNamesTheReadPassphrase()
     {
-        var text = FleetApiClient.MissingSetting(hasApiUrl: true, hostSignIn: false);
+        var text = FleetSetupHints.MissingSetting(hasApiUrl: true, hostSignIn: false);
         Assert.Contains("Read passphrase", text);
         Assert.DoesNotContain("API URL", text);
     }
@@ -26,7 +26,7 @@ public class FleetMissingSettingTests
     [Fact]
     public void AHostWithoutATokenIsNamedAlongsideThePassphrase()
     {
-        var text = FleetApiClient.MissingSetting(hasApiUrl: true, hostSignIn: true);
+        var text = FleetSetupHints.MissingSetting(hasApiUrl: true, hostSignIn: true);
         Assert.Contains("sign-in token", text);
         Assert.Contains("Read passphrase", text);
     }
