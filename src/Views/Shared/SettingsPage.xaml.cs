@@ -44,9 +44,10 @@ public partial class SettingsPage : Page
 
     private void OnSectionChecked(object sender, RoutedEventArgs e)
     {
-        if (sender is not RadioButton { Tag: string tag } || GeneralBody is null) return;
+        if (sender is not RadioButton { Name: { Length: > 0 } tab } || GeneralBody is null) return;
+        var section = tab.EndsWith("Tab", StringComparison.Ordinal) ? tab[..^3] : tab;
         foreach (var (name, body) in Sections())
-            body.Visibility = name == tag ? Visibility.Visible : Visibility.Collapsed;
+            body.Visibility = name == section ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private (string, StackPanel)[] Sections() =>
