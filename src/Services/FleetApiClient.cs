@@ -130,7 +130,7 @@ public sealed class FleetApiClient
     {
         var config = ConfigManager.Instance.Config;
         if (string.IsNullOrWhiteSpace(config.ApiUrl))
-            return new FleetResult<T>(FleetStatus.NotConfigured, null, "No API URL is configured for this device.");
+            return new FleetResult<T>(FleetStatus.NotConfigured, null, FleetSetupHints.MissingSetting(hasApiUrl: false, hostSignIn: false));
 
         var bearer = BearerTokenProvider is { } provider ? await provider(ct) : null;
         if (!string.IsNullOrWhiteSpace(bearer))
@@ -144,8 +144,7 @@ public sealed class FleetApiClient
         var readCredential = FirstNonEmpty(config.ReadApiKey, config.Passphrase);
         if (readCredential is null)
             return new FleetResult<T>(FleetStatus.NotConfigured, null,
-                "This device has no read credential. The runner's API key can report data in "
-                + "but cannot read the fleet back out.");
+                FleetSetupHints.MissingSetting(hasApiUrl: true, hostSignIn: BearerTokenProvider != null));
 
         return await SendAsync<T>(config.ApiUrl.TrimEnd('/') + path, request =>
         {
