@@ -249,6 +249,7 @@ public sealed class FleetDevice
     public string? Usage => Modules?.Inventory?.Usage;
     public string? Catalog => Modules?.Inventory?.Catalog;
     public string? Department => Modules?.Inventory?.Department;
+    public string? Owner => Modules?.Inventory?.Owner;
 }
 
 public sealed class DeviceModuleSummaries
@@ -267,6 +268,9 @@ public sealed class InventorySummary
     public string? Area { get; set; }
     public string? Fleet { get; set; }
     public string? AssetTag { get; set; }
+
+    /// <summary>The person the device is assigned to, as the inventory records it.</summary>
+    public string? Owner { get; set; }
 }
 
 public sealed class SystemSummary
