@@ -115,6 +115,22 @@ public sealed class FleetApiClient
     public Task<FleetResult<JsonDocument>> GetRawAsync(string path, CancellationToken ct = default) =>
         GetAsync<JsonDocument>(path, ct);
 
+    /// <summary>
+    /// What to set, by the name it has in Settings, when the fleet cannot be read
+    /// for want of configuration. <paramref name="hostSignIn"/> is true when an
+    /// embedding app offers sign-in tokens but returned none.
+    /// </summary>
+    public static string MissingSetting(bool hasApiUrl, bool hostSignIn)
+    {
+        if (!hasApiUrl)
+            return "Set the API URL in Settings › General › Connection.";
+        return hostSignIn
+            ? "The app hosting this dashboard returned no sign-in token, and no read passphrase is set. "
+              + "Configure the host app's sign-in for this API, or set the Read passphrase in Settings › General › Connection."
+            : "Set the Read passphrase in Settings › General › Connection. "
+              + "The runner's API key can report data in but cannot read the fleet back out.";
+    }
+
     private static string? FirstNonEmpty(params string?[] values) =>
         values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
@@ -130,7 +146,7 @@ public sealed class FleetApiClient
     {
         var config = ConfigManager.Instance.Config;
         if (string.IsNullOrWhiteSpace(config.ApiUrl))
-            return new FleetResult<T>(FleetStatus.NotConfigured, null, "No API URL is configured for this device.");
+            return new FleetResult<T>(FleetStatus.NotConfigured, null, MissingSetting(hasApiUrl: false, hostSignIn: false));
 
         var bearer = BearerTokenProvider is { } provider ? await provider(ct) : null;
         if (!string.IsNullOrWhiteSpace(bearer))
@@ -144,8 +160,7 @@ public sealed class FleetApiClient
         var readCredential = FirstNonEmpty(config.ReadApiKey, config.Passphrase);
         if (readCredential is null)
             return new FleetResult<T>(FleetStatus.NotConfigured, null,
-                "This device has no read credential. The runner's API key can report data in "
-                + "but cannot read the fleet back out.");
+                MissingSetting(hasApiUrl: true, hostSignIn: BearerTokenProvider != null));
 
         return await SendAsync<T>(config.ApiUrl.TrimEnd('/') + path, request =>
         {
