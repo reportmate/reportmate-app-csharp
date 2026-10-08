@@ -30,4 +30,20 @@ public class FleetMissingSettingTests
         Assert.Contains("sign-in token", text);
         Assert.Contains("Read passphrase", text);
     }
+
+    [Fact]
+    public void AnEmbeddingAppNamesItsOwnSetting()
+    {
+        try
+        {
+            FleetSetupHints.HostHint = hasUrl => hasUrl ? "Set the sign-in audience in the host." : null;
+            Assert.Equal("Set the sign-in audience in the host.", FleetSetupHints.MissingSetting(hasApiUrl: true, hostSignIn: false));
+            // Null falls back to this app's own guidance.
+            Assert.Contains("API URL", FleetSetupHints.MissingSetting(hasApiUrl: false, hostSignIn: false));
+        }
+        finally
+        {
+            FleetSetupHints.HostHint = null;
+        }
+    }
 }
