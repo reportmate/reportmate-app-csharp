@@ -186,7 +186,7 @@
                         </Grid.RowDefinitions>
                         <Border x:Name="Chrome" Background="{TemplateBinding Background}"
                                 CornerRadius="8,8,0,0" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <ContentPresenter x:Name="Label" HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <Border x:Name="Underline" Grid.Row="1" Background="Transparent" />
                     </Grid>
@@ -197,7 +197,9 @@
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Underline" Property="Background" Value="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" />
-                            <Setter Property="Foreground" Value="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" />
+                            <!-- A setter on the RadioButton itself has no templated parent to bind to,
+                                 so the colour goes on the label inside the template. -->
+                            <Setter TargetName="Label" Property="TextElement.Foreground" Value="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}" />
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
