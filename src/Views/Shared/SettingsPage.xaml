@@ -37,15 +37,17 @@
                 cannot act on. The only machine-local settings a dashboard needs are
                 the ones that let it read the fleet at all.
             -->
-            <!-- The device page's tab strip, reused so the two look like one app. -->
+            <!-- The device page's tab strip, reused so the two look like one app. Its
+                 style colours the selected tab with the brush in Tag, so Tag holds a
+                 brush here too and each section is told apart by its name. -->
             <StackPanel x:Name="SectionTabs" Orientation="Horizontal" Margin="0,0,0,4">
-                <RadioButton Content="General" Tag="General" GroupName="SettingsSections"
+                <RadioButton Content="General" x:Name="GeneralTab" Tag="{DynamicResource StatusBlueBrush}" GroupName="SettingsSections"
                              Style="{StaticResource DeviceTabStyle}" Checked="OnSectionChecked" IsChecked="True" />
-                <RadioButton Content="Inventory Mapping" Tag="Inventory" GroupName="SettingsSections"
+                <RadioButton Content="Inventory Mapping" x:Name="InventoryTab" Tag="{DynamicResource StatusBlueBrush}" GroupName="SettingsSections"
                              Style="{StaticResource DeviceTabStyle}" Checked="OnSectionChecked" />
-                <RadioButton Content="Security Rules" Tag="Security" GroupName="SettingsSections"
+                <RadioButton Content="Security Rules" x:Name="SecurityTab" Tag="{DynamicResource StatusBlueBrush}" GroupName="SettingsSections"
                              Style="{StaticResource DeviceTabStyle}" Checked="OnSectionChecked" />
-                <RadioButton Content="Maintenance" Tag="Maintenance" GroupName="SettingsSections"
+                <RadioButton Content="Maintenance" x:Name="MaintenanceTab" Tag="{DynamicResource StatusBlueBrush}" GroupName="SettingsSections"
                              Style="{StaticResource DeviceTabStyle}" Checked="OnSectionChecked" />
             </StackPanel>
             <Border Style="{StaticResource CardStyle}" Padding="22" Margin="0,4,0,0">
