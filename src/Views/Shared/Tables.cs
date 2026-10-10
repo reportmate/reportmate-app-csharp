@@ -380,6 +380,8 @@ public sealed class FilteredTable<T> : ContentControl
     private readonly string _emptyMessage;
     private readonly Func<IEnumerable<T>, IEnumerable<T>>? _order;
     private Func<T, UIElement>? _details;
+    private bool _showsSearchBox = true;
+    private SearchBox? _searchBox;
 
     /// <param name="subtitleFormat">Use {0} for shown count and {1} for total.</param>
     public FilteredTable(string title, string subtitleFormat, IReadOnlyList<T> rows, Func<T, string, bool> search, Col[] columns,
@@ -416,6 +418,25 @@ public sealed class FilteredTable<T> : ContentControl
         return this;
     }
 
+    /// <summary>
+    /// Leave out the search box, for a table whose query comes from elsewhere (a
+    /// host app's own search field) through <see cref="SetQuery"/>.
+    /// </summary>
+    public FilteredTable<T> WithSearchBox(bool shown)
+    {
+        _showsSearchBox = shown;
+        return this;
+    }
+
+    /// <summary>Filter by <paramref name="query"/> now, as if it had been typed.</summary>
+    public void SetQuery(string query)
+    {
+        if (query == _query) return;
+        _query = query;
+        if (_searchBox is not null && _searchBox.Text != query) _searchBox.Text = query;
+        else Refresh();
+    }
+
     /// <summary>Add a pill group. The predicate receives the row and the selected key ("all" passes everything).</summary>
     public FilteredTable<T> Filter(IEnumerable<FilterOption> options, Func<T, string, bool> predicate, string initial = "all")
     {
@@ -430,9 +451,12 @@ public sealed class FilteredTable<T> : ContentControl
     public FilteredTable<T> Build()
     {
         foreach (var (pills, _) in _filters) _controls.Children.Add(pills);
-        var search = new SearchBox(_searchPlaceholder, q => { _query = q; Refresh(); });
-        if (!string.IsNullOrEmpty(_query)) search.Text = _query;
-        _controls.Children.Add(search);
+        if (_showsSearchBox)
+        {
+            _searchBox = new SearchBox(_searchPlaceholder, q => { _query = q; Refresh(); });
+            if (!string.IsNullOrEmpty(_query)) _searchBox.Text = _query;
+            _controls.Children.Add(_searchBox);
+        }
         var header = new StackPanel();
         header.Children.Add(Ui.Text(_title, "TitleTextStyle"));
         header.Children.Add(_subtitle);
