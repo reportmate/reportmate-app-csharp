@@ -11,6 +11,14 @@ public sealed class DevicesPage : FleetPage
     protected override (string, string, Accent)? Heading =>
         ("Devices", "Every device reporting to ReportMate", Accent.Blue);
 
+    private FilteredTable<DeviceRow>? _table;
+
+    /// <summary>
+    /// Filter the list by the host app's search field, when the dashboard draws
+    /// no search of its own (<see cref="DashboardChrome.ShowsSearchField"/>).
+    /// </summary>
+    internal void ApplyHostSearch(string query) => _table?.SetQuery(query);
+
     protected override async Task<UIElement> BuildAsync()
     {
         var result = await FleetApiClient.Instance.GetDevicesAsync();
@@ -77,7 +85,13 @@ public sealed class DevicesPage : FleetPage
             })
             .ToList();
 
-        var table = new FilteredTable<DeviceRow>("Devices", "{0} of {1} devices", rows,
+        // A host that supplies search filters this list from its own field. Until
+        // something is typed there, a link's own filter applies.
+        var host = DashboardView.Containing(this);
+        var hostSearch = host is { Chrome.ShowsSearchField: false };
+        var query = (hostSearch ? host!.HostDeviceFilter : null) ?? Filter("search") ?? Filter("q");
+
+        var table = _table = new FilteredTable<DeviceRow>("Devices", "{0} of {1} devices", rows,
             (r, q) => r.Matches(q),
             [
                 Col.Text("Device", "Name", star: true, sub: "Department"),
@@ -118,7 +132,8 @@ public sealed class DevicesPage : FleetPage
             // search box: 240 distinct values is not a pill row.
             .Filter(Options(rows, r => r.Usage, "Any usage"), (r, k) => r.Usage == k)
             .Filter(Options(rows, r => r.Catalog, "Any catalog"), (r, k) => r.Catalog == k)
-            .WithQuery(Filter("search") ?? Filter("q"))
+            .WithQuery(query)
+            .WithSearchBox(!hostSearch)
             .Build();
 
         table.Margin = new Thickness(0, 20, 0, 0);

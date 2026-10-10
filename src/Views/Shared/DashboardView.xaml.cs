@@ -13,19 +13,23 @@ namespace ReportMate.App.Views.Shared;
 /// The ReportMate dashboard: the header -- platform scope, device search, section
 /// tabs, settings -- over the page it navigates between. The ReportMate app shows
 /// it as its window's content; another WPF app can host it to embed the dashboard.
+/// A host whose window already has a search field passes
+/// <see cref="DashboardChrome.HostProvided"/> and feeds that field into
+/// <see cref="DeviceSearch"/>.
 /// </summary>
 public partial class DashboardView : UserControl
 {
     private readonly Dictionary<string, Page> _pages = new();
 
-    /// <summary>
-    /// Below this width the nine reports collapse behind a single Reports tab; above
-    /// it each report gets its own tab, which is how the web header behaves.
-    /// </summary>
-    private const double ReportsInlineWidth = 1500;
-
     private bool _reportsInline;
     private string _current = "dashboard";
+    private DashboardChrome _chrome = DashboardChrome.Standard;
+
+    /// <summary>
+    /// The width of the tab bar with every report as its own tab, measured the last
+    /// time it was drawn that way; zero until then.
+    /// </summary>
+    private double _inlineTabsWidth;
 
     /// <summary>The dashboard reading its palette and styles from the application's resources.</summary>
     public DashboardView() : this(scopedResources: false) { }
@@ -36,11 +40,17 @@ public partial class DashboardView : UserControl
     /// keeps a copy of its own on this view and the pages it shows. The host still
     /// needs ModernWpf's ThemeResources and XamlControlsResources loaded.
     /// </summary>
-    public DashboardView(bool scopedResources)
+    /// <param name="chrome">
+    /// Which of its own controls the header draws; null is
+    /// <see cref="DashboardChrome.Standard"/>, the header the ReportMate app shows.
+    /// </param>
+    public DashboardView(bool scopedResources, DashboardChrome? chrome = null)
     {
         if (scopedResources) DashboardResources.EnableScoped();
         DashboardResources.Adopt(this);
         InitializeComponent();
+        _chrome = chrome ?? DashboardChrome.Standard;
+        ApplyChrome();
 
         // The scope belongs to the window, so a page opened after it was set opens
         // already narrowed, and pages already built are rebuilt to match.
@@ -58,19 +68,51 @@ public partial class DashboardView : UserControl
                 "failures" => "failures",
                 _ => "report:" + id,
             });
-        SizeChanged += (_, _) => BuildTabs();
+        HeaderGrid.SizeChanged += (_, _) => BuildTabs();
+        TabBarFrame.SizeChanged += (_, _) =>
+        {
+            if (!_reportsInline || TabBarFrame.ActualWidth <= 0) return;
+            _inlineTabsWidth = TabBarFrame.ActualWidth;
+            BuildTabs();
+        };
         BuildTabs();
         Navigate("dashboard");
     }
 
     /// <summary>
+    /// Which of its own controls the header draws. Changing it rebuilds the pages,
+    /// since the Devices list draws its search box or leaves it to the host.
+    /// </summary>
+    public DashboardChrome Chrome
+    {
+        get => _chrome;
+        set
+        {
+            if (value == _chrome) return;
+            _chrome = value;
+            ApplyChrome();
+            Navigate(_current, force: true);
+        }
+    }
+
+    private void ApplyChrome()
+    {
+        Brand.Visibility = _chrome.ShowsBrand ? Visibility.Visible : Visibility.Collapsed;
+        SearchHost.Visibility = _chrome.ShowsSearchField ? Visibility.Visible : Visibility.Collapsed;
+        // Without the search the column is only the gap between the controls, and
+        // its width goes to the tabs.
+        SearchColumn.MinWidth = _chrome.ShowsSearchField ? 140 : 0;
+        BuildTabs();
+    }
+
+    /// <summary>
     /// The primary sections, in the same order as the web app and the Mac client.
-    /// Reports either sit inline as their own tabs or collapse into one tab,
-    /// depending on how much room the window has.
+    /// Reports sit inline as their own tabs when the header has the room for them
+    /// beside its other controls, and collapse into one Reports tab when it does not.
     /// </summary>
     private void BuildTabs()
     {
-        var inline = ActualWidth >= ReportsInlineWidth;
+        var inline = ReportsFitInline();
         if (TabBar.Children.Count > 0 && inline == _reportsInline) { SyncChecked(); return; }
         _reportsInline = inline;
 
@@ -88,6 +130,20 @@ public partial class DashboardView : UserControl
             AddTab("reports", "Reports", "");
 
         SyncChecked();
+    }
+
+    /// <summary>
+    /// Whether every report fits as its own tab in the width the header's other
+    /// controls leave: the mark, the platform toggle, the search field's minimum
+    /// and the trailing buttons. Before the inline tabs have been measured they are
+    /// drawn once to find out, which is what records their width.
+    /// </summary>
+    private bool ReportsFitInline()
+    {
+        if (_inlineTabsWidth <= 0) return true;
+        var columns = HeaderGrid.ColumnDefinitions;
+        var others = columns[0].ActualWidth + columns[1].ActualWidth + columns[4].ActualWidth + SearchColumn.MinWidth;
+        return HeaderGrid.ActualWidth > 0 && _inlineTabsWidth <= HeaderGrid.ActualWidth - others;
     }
 
     /// <summary>
@@ -186,6 +242,8 @@ public partial class DashboardView : UserControl
     /// </summary>
     public void OpenDeepLink(DeepLink link)
     {
+        // A link brings its own filters; the host's last query no longer applies.
+        _hostDeviceFilter = null;
         switch (link.Section)
         {
             case "settings":
@@ -317,6 +375,18 @@ public partial class DashboardView : UserControl
     /// </summary>
     private List<FleetDevice>? _searchable;
 
+    /// <summary>The device list for search, loaded on first use; null when the API cannot serve it.</summary>
+    private async Task<List<FleetDevice>?> SearchableDevicesAsync()
+    {
+        if (_searchable is null)
+        {
+            var result = await FleetApiClient.Instance.GetDevicesAsync();
+            if (!result.Ok) return null;
+            _searchable = result.Data!.Devices;
+        }
+        return _searchable;
+    }
+
     private async void OnSearchTextChanged(
         ModernWpf.Controls.AutoSuggestBox sender, ModernWpf.Controls.AutoSuggestBoxTextChangedEventArgs args)
     {
@@ -330,16 +400,11 @@ public partial class DashboardView : UserControl
             return;
         }
 
-        if (_searchable is null)
-        {
-            var result = await FleetApiClient.Instance.GetDevicesAsync();
-            if (!result.Ok) return;
-            _searchable = result.Data!.Devices;
-        }
+        if (await SearchableDevicesAsync() is not { } devices) return;
 
         // The scope applies here too: searching while filtered to Windows should not
         // offer a Mac.
-        sender.ItemsSource = _searchable
+        sender.ItemsSource = devices
             .Where(d => PlatformFilter.Includes(d.Platform ?? d.OsName))
             .Select(d => DeviceHit.For(d, query))
             .Where(h => h is not null)
@@ -377,6 +442,90 @@ public partial class DashboardView : UserControl
         Navigate("devices", force: true);
         SyncChecked();
     }
+
+    // ── Host search ─────────────────────────────────────────────────────
+
+    private string _deviceSearch = "";
+
+    /// <summary>
+    /// What the Devices list is filtered by on the host's behalf: the host's query,
+    /// or the serial <see cref="OpenBestDeviceMatchAsync"/> opened. Null until the
+    /// host has typed anything, so a link's own filter applies until then.
+    /// </summary>
+    private string? _hostDeviceFilter;
+
+    internal string? HostDeviceFilter => _hostDeviceFilter;
+
+    /// <summary>
+    /// The device query from the host's own search field, for a host that hides the
+    /// dashboard's (<see cref="DashboardChrome.ShowsSearchField"/> false). Any text
+    /// brings the Devices list forward, filtered by it, as the dashboard's own search
+    /// lands there; an empty string clears the filter and leaves the page where it is.
+    /// </summary>
+    public string DeviceSearch
+    {
+        get => _deviceSearch;
+        set
+        {
+            value ??= "";
+            if (value == _deviceSearch) return;
+            _deviceSearch = value;
+            ShowDeviceFilter(value, bringForward: value.Trim().Length > 0);
+        }
+    }
+
+    /// <summary>
+    /// Open the device that best matches <see cref="DeviceSearch"/>, for the host's
+    /// Return key: the Devices list narrowed to it, as choosing a search result does.
+    /// False, leaving the filtered list on screen, when nothing matches.
+    /// </summary>
+    public async Task<bool> OpenBestDeviceMatchAsync()
+    {
+        var query = _deviceSearch.Trim();
+        if (query.Length == 0 || await SearchableDevicesAsync() is not { } devices) return false;
+
+        var match = DeviceMatch.Best(
+            devices.Where(d => PlatformFilter.Includes(d.Platform ?? d.OsName)),
+            query,
+            d => [d.Name, d.SerialNumber, d.AssetTag, d.Hostname]);
+        if (match is null) return false;
+
+        ShowDeviceFilter(match.SerialNumber, bringForward: true);
+        return true;
+    }
+
+    private void ShowDeviceFilter(string filter, bool bringForward)
+    {
+        _hostDeviceFilter = filter;
+        if (_pages.TryGetValue("devices", out var page) && page is DevicesPage devices)
+            devices.ApplyHostSearch(filter);
+        if (bringForward && _current != "devices") NavigateTo("devices");
+    }
+}
+
+/// <summary>
+/// Which of its own controls an embedded dashboard draws in its header. The
+/// ReportMate app's window always uses <see cref="Standard"/>.
+/// </summary>
+/// <param name="ShowsSearchField">
+/// The header's device search, and the Devices list's own filter box. Off when the
+/// host window already has a search field and routes its text in through
+/// <see cref="DashboardView.DeviceSearch"/>, so the window shows one search field.
+/// </param>
+/// <param name="ShowsBrand">
+/// The ReportMate mark at the header's leading edge. Off when the host already
+/// names what it is showing, which leaves the row's width to the section tabs.
+/// </param>
+public sealed record DashboardChrome(bool ShowsSearchField = true, bool ShowsBrand = true)
+{
+    /// <summary>The full header: mark, platform toggle, search, tabs, settings.</summary>
+    public static DashboardChrome Standard { get; } = new();
+
+    /// <summary>
+    /// For a host that supplies search and names the view itself: one row of the
+    /// platform toggle, the section tabs and settings, with no search field or mark.
+    /// </summary>
+    public static DashboardChrome HostProvided { get; } = new(ShowsSearchField: false, ShowsBrand: false);
 }
 
 /// <summary>

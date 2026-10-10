@@ -48,6 +48,34 @@ Two hooks let the host supply what it already has. Both are optional:
 `DashboardView.OpenDeepLink` opens the view a `reportmate://` link names. The host
 decides whether to register the protocol; the library never does.
 
+A host whose window already has a search field, or that names the view itself,
+passes `DashboardChrome.HostProvided`. The header then draws one row of the platform
+toggle, the section tabs and Settings, with no search field and no ReportMate mark,
+and the Devices list drops its own filter box, so the window has one search field:
+
+```csharp
+var dashboard = new ReportMate.App.Views.Shared.DashboardView(scopedResources: true, DashboardChrome.HostProvided);
+```
+
+The host feeds its field into the Devices list. Any text brings the list forward,
+filtered by it; an empty string clears the filter:
+
+```csharp
+dashboard.DeviceSearch = query;
+```
+
+On Return, the host opens the device that best matches, which returns false when
+nothing does:
+
+```csharp
+await dashboard.OpenBestDeviceMatchAsync();
+```
+
+`DashboardChrome(ShowsSearchField, ShowsBrand)` sets the two independently, and
+`DashboardView.Chrome` changes them after the view is built. In every mode the
+reports sit in the header as their own tabs when the width its other controls leave
+can hold them, and fold into one Reports tab when it cannot.
+
 ## Building
 
 ```powershell
