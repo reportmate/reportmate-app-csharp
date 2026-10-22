@@ -267,13 +267,15 @@ public partial class DashboardView : UserControl
         _syncing = true;
         try
         {
+            // Tools Logs is the Management report's second view, under its tab.
+            var tab = _current == "management-logs" ? "report:management" : _current;
             foreach (var child in TabBar.Children)
-                if (child is RadioButton rb && rb.Tag?.ToString() == _current) { rb.IsChecked = true; return; }
+                if (child is RadioButton rb && rb.Tag?.ToString() == tab) { rb.IsChecked = true; return; }
 
             // The current page has no tab at this width (a report while collapsed):
             // show Reports as the active section instead of leaving nothing checked.
             if (_current.StartsWith("report:", StringComparison.Ordinal)
-                || _current is "failures" or "coverage" || _current.StartsWith("usage:", StringComparison.Ordinal))
+                || _current is "failures" or "coverage" or "management-logs" || _current.StartsWith("usage:", StringComparison.Ordinal))
                 foreach (var child in TabBar.Children)
                     if (child is RadioButton rb && rb.Tag?.ToString() == "reports") { rb.IsChecked = true; return; }
 
@@ -359,11 +361,19 @@ public partial class DashboardView : UserControl
                 if (argument.StartsWith("usage/", StringComparison.OrdinalIgnoreCase))
                 {
                     var days = int.TryParse(link["days"], out var d) ? d : 30;
+                    // The App Usage card's usage and catalog filters ride along.
+                    PendingLink = link;
                     ShowFresh($"usage:{days}:{argument["usage/".Length..]}");
                     return;
                 }
                 PendingLink = link;
                 ShowFresh("report:applications");
+                return;
+
+            // management/logs is the Management report's second view, Tools Logs.
+            case "management" when link.Argument is { } mgmt && mgmt.Equals("logs", StringComparison.OrdinalIgnoreCase):
+                PendingLink = link;
+                ShowFresh("management-logs");
                 return;
 
             // events/failures is a page of its own on the web, the same shape as
@@ -437,6 +447,7 @@ public partial class DashboardView : UserControl
             var days = split > 0 && int.TryParse(rest[..split], out var d) ? d : 30;
             page = new AppUsagePage(split > 0 ? rest[(split + 1)..] : rest, days);
         }
+        else if (tag == "management-logs") page = new ManagementLogsPage();
         else if (tag == "coverage") page = new CoveragePage();
         else if (tag == "failures") page = new FailuresPage();
         else if (tag.StartsWith("report:", StringComparison.Ordinal))

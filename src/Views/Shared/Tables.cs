@@ -410,6 +410,9 @@ public sealed class FilteredTable<T> : ContentControl
     private readonly string _emptyMessage;
     private readonly Func<IEnumerable<T>, IEnumerable<T>>? _order;
     private Func<T, UIElement>? _details;
+    private (string File, string[] Headers, Func<T, IEnumerable<string?>> Row)? _csv;
+    private Func<T, ReportMate.App.Services.DeepLink?>? _open;
+    private List<T> _visible = [];
     private bool _showsSearchBox = true;
     private SearchBox? _searchBox;
 
@@ -440,6 +443,37 @@ public sealed class FilteredTable<T> : ContentControl
     {
         _details = build;
         return this;
+    }
+
+    /// <summary>
+    /// Make each row open where <paramref name="link"/> says -- a device row its device
+    /// page -- on click or Enter. A row the function returns null for stays put.
+    /// </summary>
+    public FilteredTable<T> WithRowLink(Func<T, ReportMate.App.Services.DeepLink?> link)
+    {
+        _open = link;
+        return this;
+    }
+
+    /// <summary>An Export CSV button that saves the rows on screen, filtered as they are.</summary>
+    public FilteredTable<T> WithCsv(string fileName, string[] headers, Func<T, IEnumerable<string?>> row)
+    {
+        _csv = (fileName, headers, row);
+        return this;
+    }
+
+    private void ExportCsv()
+    {
+        if (_csv is not { } csv) return;
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            FileName = csv.File,
+            DefaultExt = ".csv",
+            Filter = "CSV files (*.csv)|*.csv",
+        };
+        if (dialog.ShowDialog() != true) return;
+        System.IO.File.WriteAllText(dialog.FileName,
+            ReportMate.App.Services.Csv.Document(csv.Headers, _visible.Select(csv.Row)), new System.Text.UTF8Encoding(true));
     }
 
     public FilteredTable<T> WithQuery(string? query)
@@ -481,6 +515,12 @@ public sealed class FilteredTable<T> : ContentControl
     public FilteredTable<T> Build()
     {
         foreach (var (pills, _) in _filters) _controls.Children.Add(pills);
+        if (_csv is not null)
+        {
+            var export = Ui.IconButton("\uEDE1", "Export CSV", (_, _) => ExportCsv());
+            export.Margin = new Thickness(8, 0, 0, 0);
+            _controls.Children.Add(export);
+        }
         if (_showsSearchBox)
         {
             _searchBox = new SearchBox(_searchPlaceholder, q => { _query = q; Refresh(); });
@@ -514,6 +554,7 @@ public sealed class FilteredTable<T> : ContentControl
         if (q.Length > 0) rows = rows.Where(r => _search(r, q));
         if (_order is not null) rows = _order(rows);
         var list = rows.ToList();
+        _visible = list;
         _subtitle.Text = string.Format(_subtitleFormat, list.Count, _all.Count);
         if (list.Count == 0)
         {
@@ -522,6 +563,28 @@ public sealed class FilteredTable<T> : ContentControl
         }
         var grid = Table.Build(list, _columns);
         if (_details is { } build) Table.RowDetails(grid, item => build((T)item));
+        if (_open is { } open)
+        {
+            grid.Cursor = System.Windows.Input.Cursors.Hand;
+            void Follow(object? item)
+            {
+                if (item is T row && open(row) is { } link) DashboardView.Follow(this, link);
+            }
+            grid.PreviewMouseLeftButtonUp += (_, e) =>
+            {
+                // Only a click on a row: a header click sorts, and a scroll bar scrolls.
+                var hit = e.OriginalSource as DependencyObject;
+                while (hit is not null and not DataGridRow and not System.Windows.Controls.Primitives.DataGridColumnHeader)
+                    hit = System.Windows.Media.VisualTreeHelper.GetParent(hit);
+                if (hit is DataGridRow row) Follow(row.Item);
+            };
+            grid.PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key != System.Windows.Input.Key.Enter) return;
+                e.Handled = true;
+                Follow(grid.SelectedItem);
+            };
+        }
         _body.Content = grid;
     }
 }
