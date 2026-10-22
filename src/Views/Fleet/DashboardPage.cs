@@ -159,7 +159,7 @@ public sealed class DashboardPage : FleetPage
         body.Children.Add(Linked(Charts.Bar("Stale", Count(DeviceLiveness.Stale), devices.Count, Tone.Warning), To("devices", ("status", "stale"))));
         body.Children.Add(Linked(Charts.Bar("Missing", Count(DeviceLiveness.Missing), devices.Count, Tone.Error), To("devices", ("status", "missing"))));
         if (Count(DeviceLiveness.Archived) > 0)
-            body.Children.Add(Charts.Bar("Archived", Count(DeviceLiveness.Archived), devices.Count, Tone.Neutral));
+            body.Children.Add(Linked(Charts.Bar("Archived", Count(DeviceLiveness.Archived), devices.Count, Tone.Neutral), To("devices", ("status", "archived"))));
         return Linkable.LinkHeader(Ui.StatBlock("Fleet Status", "Seen in the last 24 hours", "", Accent.Green, Pad(body)), To("devices"));
     }
 

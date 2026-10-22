@@ -420,6 +420,30 @@ public static partial class Insights
             : "2t+";
     }
 
+    /// <summary>
+    /// The Identity report's authentication class: <c>modern</c> when the device
+    /// signs in through Platform SSO or Windows Hello for Business, <c>legacy</c> when
+    /// it is otherwise bound to AD or LDAP, else <c>standard</c> -- the web identity
+    /// page's rule.
+    /// </summary>
+    public static string AuthClass(JsonElement row)
+    {
+        var psso = Prop(row, "platformSSOUsers") is { } p && Boolish(p, "deviceRegistered");
+        var hello = Prop(row, "windowsHello") is { } h && Str(h, "statusDisplay") is { Length: > 0 } status
+            && !status.StartsWith("Disabled", StringComparison.OrdinalIgnoreCase);
+        if (psso || hello) return "modern";
+        var ds = Prop(row, "directoryServices") ?? default;
+        var bound = (Prop(ds, "activeDirectory") is { } ad && Boolish(ad, "bound"))
+            || (Prop(ds, "ldap") is { } ldap && Boolish(ldap, "bound"));
+        return bound ? "legacy" : "standard";
+    }
+
+    /// <summary>The administrator account names a device reports.</summary>
+    public static IEnumerable<string> AdminNames(JsonElement row) =>
+        Prop(row, "adminUsernames") is { ValueKind: JsonValueKind.Array } names
+            ? names.EnumerateArray().Where(n => n.ValueKind == JsonValueKind.String).Select(n => n.GetString() ?? "")
+            : [];
+
     /// <summary>The local administrator accounts a device reports.</summary>
     public static int AdminCount(JsonElement row) =>
         Prop(row, "summary") is { } summary ? Int(summary, "adminUsers") : 0;

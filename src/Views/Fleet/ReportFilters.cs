@@ -169,6 +169,9 @@ public static class ReportFilters
                 _ => false,
             }),
             ["join"] = Simple((r, w) => Eq(Insights.JoinType(r), w)),
+            // The User Accounts card's: how the device signs in, and one admin account by name.
+            ["auth"] = Simple((r, w) => Eq(Insights.AuthClass(r), w)),
+            ["admin"] = Simple((r, w) => Insights.AdminNames(r).Any(n => Eq(n, w))),
             // The Identity report's classes (Cloud Joined, Domain Joined and its
             // Trusted / Unconfirmed / Broken, Standard, Unjoined), in any spelling of
             // the label; and the earlier Mac-only psso, bound and unbound.

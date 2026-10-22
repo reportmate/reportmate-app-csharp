@@ -1056,6 +1056,49 @@
     }
    }
   },
+  "userAccounts": {
+   "authentication": {
+    "modern": {
+     "count": 6,
+     "link": {
+      "path": "/identity",
+      "params": {
+       "auth": "modern"
+      }
+     }
+    },
+    "standard": {
+     "count": 4,
+     "link": {
+      "path": "/identity",
+      "params": {
+       "auth": "standard"
+      }
+     }
+    }
+   },
+   "adminAccounts": [
+    {
+     "name": "admin",
+     "devices": 10,
+     "link": {
+      "path": "/identity",
+      "params": {
+       "admin": "admin"
+      }
+     }
+    }
+   ],
+   "extraAdmins": {
+    "count": 2,
+    "link": {
+     "path": "/identity",
+     "params": {
+      "admins": "extra"
+     }
+    }
+   }
+  },
   "connectivityProblems": {
    "devices": 9,
    "weakSignal": {

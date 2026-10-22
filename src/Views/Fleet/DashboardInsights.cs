@@ -287,12 +287,14 @@ public static class InsightWidgets
     [
         new("installHealth", "Installs", "Munki and Cimian across the fleet", Accent.Emerald, GlyphOf("installs"), L("installs"),
             Placement: InsightPlacement.StatusColumn, Hero: true),
-        new("managementToolLogs", "Management Tools Logs", "Errors in the management tools' own logs", Accent.Purple, GlyphOf("management"), L("management"), InsightShape.Bars,
-            Placement: InsightPlacement.StatusColumn),
+        // The Management report's own shield, in its yellow, as the nav and the report draw it.
+        new("managementToolLogs", "Management Tools Logs", "Errors in the management tools' own logs", Accent.Yellow, GlyphOf("management"),
+            InsightCards.ToolsLogsLink(), InsightShape.Bars, Placement: InsightPlacement.StatusColumn),
         new("checkinGaps", "Check-in Gaps", "Turned away, and gone quiet", Accent.Red, "\uE7BA",
             DeepLink.For("events", "failures", ("hours", "24")), Placement: InsightPlacement.StatusColumn),
 
-        new("directoryServices", "Directory Services", "How devices are joined, and who administers them", Accent.Indigo, GlyphOf("identity"), L("identity"), InsightShape.Donut),
+        new("directoryServices", "Directory Services", "How devices are joined to a directory", Accent.Indigo, GlyphOf("identity"), L("identity"), InsightShape.Donut),
+        new("userAccounts", "User Accounts", "Sign-in method and administrator accounts", Accent.Indigo, GlyphOf("identity"), L("identity"), InsightShape.Donut),
         new("connectivityProblems", "Connectivity Problems", "Weak Wi-Fi, poor networks and VPN", Accent.Teal, GlyphOf("network"), L("network")),
         new("protectionGaps", "Protection Gaps", "Devices missing a protection", Accent.Red, GlyphOf("security"), L("security"), InsightShape.Bars),
         new("expiringCertificates", "Expiring Certificates", "Expiring soon, and already expired", Accent.Yellow, "\uEB95", L("security")),
@@ -306,7 +308,7 @@ public static class InsightWidgets
             Placement: InsightPlacement.ColumnB),
         new("softwareRisk", "Software Risk", "Vulnerabilities and items behind", Accent.Red, GlyphOf("security"), L("security"),
             Placement: InsightPlacement.ColumnB),
-        new("rebootDebt", "Reboot Debt", "Devices that have gone too long without a restart", Accent.Orange, GlyphOf("system"), L("system"), InsightShape.Bars,
+        new("rebootDebt", "Uptime Overview", "How long devices have run since their last restart", Accent.Orange, GlyphOf("system"), L("system"), InsightShape.Bars,
             Placement: InsightPlacement.ColumnB),
     ];
 

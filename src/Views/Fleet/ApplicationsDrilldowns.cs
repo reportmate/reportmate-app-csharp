@@ -167,8 +167,12 @@ public sealed class AppUsagePage : FleetPage
 
     protected override async Task<UIElement> BuildAsync()
     {
+        // The usage and catalog scope an App Usage link carries, which the endpoint takes as is.
+        var scope = string.Concat(new[] { "usages", "catalogs" }
+            .Where(k => !string.IsNullOrWhiteSpace(Filter(k)))
+            .Select(k => $"&{k}={Uri.EscapeDataString(Filter(k)!)}"));
         var result = await FleetApiClient.Instance.GetRawAsync(
-            $"/api/v1/applications/usage/by-device?app={Uri.EscapeDataString(_app)}&days={_days}");
+            $"/api/v1/applications/usage/by-device?app={Uri.EscapeDataString(_app)}&days={_days}{scope}");
 
         var page = new StackPanel();
         page.Children.Add(Ui.TabHeader(_app, $"Usage across the fleet over the last {_days} days", "", Accent.Blue));

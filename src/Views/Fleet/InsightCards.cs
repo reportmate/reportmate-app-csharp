@@ -69,7 +69,7 @@ public static class InsightCards
     public static readonly IReadOnlyList<string> Keys =
     [
         "installHealth", "rebootDebt", "protectionGaps", "managementToolLogs", "storage",
-        "checkinGaps", "updateDebt", "softwareRisk", "expiringCertificates", "directoryServices",
+        "checkinGaps", "updateDebt", "softwareRisk", "expiringCertificates", "directoryServices", "userAccounts",
         "connectivityProblems",
     ];
 
@@ -112,7 +112,7 @@ public static class InsightCards
     /// is final, so the card says so at once rather than waiting out its skeleton.
     /// </summary>
     public static string FailureText(int? httpStatus, string? detail) => httpStatus == 404
-        ? "This API does not serve dashboard insights yet (404)."
+        ? "Not available yet: this API does not serve this card (404)."
         : detail ?? "The dashboard insights could not be loaded.";
 
     // ── Links ────────────────────────────────────────────────────────────
@@ -193,6 +193,7 @@ public static class InsightCards
             "expiringCertificates" => Certificates(c),
             "directoryServices" or "directoryJoin" => DirectoryServices(c, view),
             "connectivityProblems" => Connectivity(c),
+            "userAccounts" => UserAccounts(c),
             AppUsage => AppUsageCard(c),
             _ => new CardView([], $"This app does not know the card {key}."),
         };
@@ -295,7 +296,8 @@ public static class InsightCards
             .Select(t =>
             {
                 var withErrors = Insights.Int(t, "devicesWithErrors");
-                return new Metric(Insights.Str(t, "name"), withErrors, ToDeepLink(Insights.Prop(t, "link")), When(withErrors, Severity.Bad),
+                return new Metric(Insights.Str(t, "name"), withErrors, ToolsLogsLink(Insights.Str(t, "tool"), "error", Insights.Str(t, "platform")),
+                    When(withErrors, Severity.Bad),
                     Value: $"{withErrors:N0}",
                     Detail: $"{withErrors:N0} devices with errors · {Insights.Int(t, "devicesWithWarnings"):N0} with warnings · {Insights.Int(t, "errorLines"):N0} error lines",
                     Platform: Insights.Str(t, "platform") is { Length: > 0 } p ? p : null);
@@ -313,7 +315,8 @@ public static class InsightCards
             .Where(m => !IsMdmTool(m))
             .GroupBy(m => (Tool: Insights.Str(m, "tool"), Message: NormalizeMessage(Insights.Str(m, "message"))))
             .Select(g => (g.Key.Message, Name: Insights.Str(g.First(), "name"), Devices: g.Sum(m => Insights.Int(m, "devices")),
-                Link: ToDeepLink(Insights.Prop(g.First(), "link"))))
+                Link: ToolsLogsLink(g.Key.Tool, "error", Insights.Str(g.First(), "platform"),
+                    Insights.Str(g.First(), "messageId") is { Length: > 0 } id ? id : MessageId(g.Key.Message))))
             .OrderByDescending(g => g.Devices)
             .Take(5)
             .Select(g => new Metric(g.Message, g.Devices, g.Link, Detail: $"{g.Name} · {g.Devices:N0} devices"))
@@ -384,6 +387,70 @@ public static class InsightCards
     {
         var stripped = LeadingStamp.Replace(message, "", 1).Trim();
         return stripped.Length == 0 ? message.Trim() : stripped;
+    }
+
+    /// <summary>
+    /// The Management Tools Logs report, filtered: <c>/management/logs?tool=…&amp;level=…</c>.
+    /// The card's server links point at the device list, which carries no log data;
+    /// the report is where a tool's errors can be seen.
+    /// </summary>
+    public static DeepLink ToolsLogsLink(string? tool = null, string? level = null, string? platform = null, string? message = null) =>
+        DeepLink.For("management", "logs", ("tool", tool), ("level", level),
+            ("platform", string.IsNullOrWhiteSpace(platform) ? null : platform), ("message", message));
+
+    /// <summary>
+    /// A normalised message's id, when the server sends none: a short stable hash of
+    /// the text, so a link and the report's message filter name the same message.
+    /// </summary>
+    public static string MessageId(string normalized)
+    {
+        var hash = System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes(normalized.Trim()));
+        return Convert.ToHexString(hash, 0, 6).ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// User Accounts: the Identity report's Authentication donut (modern against
+    /// standard), the admin accounts on the most devices, and the devices with extra
+    /// local admins, which moved here from Directory Services.
+    /// </summary>
+    private static CardView UserAccounts(JsonElement c)
+    {
+        var parts = new List<CardPart>();
+        // The authentication split as a list of segments, or as one object per class.
+        var auth = Node(c, "authentication") ?? Node(c, "auth");
+        IEnumerable<JsonElement> segments = auth switch
+        {
+            { ValueKind: JsonValueKind.Array } list => list.EnumerateArray(),
+            { } holder => Array(holder, "segments"),
+            _ => [],
+        };
+        var slices = segments
+            .Select(s => new Metric(Insights.Str(s, "label"), Insights.Int(s, "count"), ToDeepLink(Insights.Prop(s, "link")),
+                Insights.Str(s, "key").ToLowerInvariant() switch { "modern" => Severity.Good, "legacy" => Severity.Warning, _ => Severity.Info }))
+            .ToList();
+        if (slices.Count == 0 && auth is { ValueKind: JsonValueKind.Object } a)
+            foreach (var (key, label, severity) in new[] { ("modern", "Modern", Severity.Good), ("legacy", "Legacy", Severity.Warning), ("standard", "Standard", Severity.Info) })
+                if (Node(a, key) is { } seg)
+                    slices.Add(new Metric(label, Insights.Int(seg, "count"),
+                        ToDeepLink(Insights.Prop(seg, "link")) ?? DeepLink.For("identity", null, ("auth", key)), severity));
+        if (slices.Count > 0)
+            parts.Add(new DonutPart(slices.Sum(s => s.Count).ToString("N0", CultureInfo.CurrentCulture), "devices", slices));
+
+        var admins = new[] { "adminAccounts", "topAdmins", "admins" }
+            .Select(n => Array(c, n).ToList()).FirstOrDefault(l => l.Count > 0) ?? [];
+        var adminRows = admins
+            .Select(a => (Name: Insights.Str(a, "name") is { Length: > 0 } n ? n : Insights.Str(a, "username"), Devices: Insights.Int(a, "devices") is var d and > 0 ? d : Insights.Int(a, "count"), Node: a))
+            .Where(a => a.Name.Length > 0)
+            .Take(5)
+            .Select(a => new Metric(a.Name, a.Devices,
+                ToDeepLink(Insights.Prop(a.Node, "link")) ?? DeepLink.For("identity", null, ("admin", a.Name)), Severity.Info))
+            .ToList();
+        if (adminRows.Count > 0) parts.Add(new BarsPart("ADMINISTRATOR ACCOUNTS", adminRows));
+
+        if (Node(c, "extraAdmins") is not null)
+            parts.Add(new ChipsPart([Figure(c, "extraAdmins", "devices with extra local admins", Severity.Warning)]));
+        if (parts.Count == 0) parts.Add(new NotePart("No account data has been reported."));
+        return new CardView(parts);
     }
 
     private static string Gb(double? bytes) => bytes is not > 0 ? "?"
@@ -464,7 +531,6 @@ public static class InsightCards
 
         parts.Add(new ChipsPart(
         [
-            Figure(v, "extraAdmins", "with extra local admins", Severity.Warning),
             Figure(v, "shared", "shared", Severity.Neutral),
             Figure(v, "assigned", "assigned", Severity.Neutral),
         ]));
@@ -585,7 +651,7 @@ public static class InsightCards
         {
             new DonutPart($"{Insights.Int(c, "pctOnLatest")}%", "latest",
             [
-                new Metric("On latest patch", onLatest, null, Severity.Good),
+                new Metric("On latest patch", onLatest, DeepLink.For("system", null, ("patch", "latest")), Severity.Good),
                 new Metric("Behind", behind, LinkOf(c, "behind"), Severity.Warning),
             ]),
             new ChipsPart(

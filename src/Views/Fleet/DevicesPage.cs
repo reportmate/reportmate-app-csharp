@@ -117,11 +117,14 @@ public sealed class DevicesPage : FleetPage
                 new("active", "Active", rows.Count(r => r.Liveness == DeviceLiveness.Active)),
                 new("stale", "Stale", rows.Count(r => r.Liveness == DeviceLiveness.Stale)),
                 new("missing", "Missing", rows.Count(r => r.Liveness == DeviceLiveness.Missing)),
+                // Fleet Status's Archived bar links here.
+                new("archived", "Archived", rows.Count(r => r.Liveness == DeviceLiveness.Archived)),
             ], (r, k) => k switch
             {
                 "active" => r.Liveness == DeviceLiveness.Active,
                 "stale" => r.Liveness == DeviceLiveness.Stale,
                 "missing" => r.Liveness == DeviceLiveness.Missing,
+                "archived" => r.Liveness == DeviceLiveness.Archived,
                 _ => true,
             }, initial: wantedStatus is null ? "all" : wantedStatus.ToLowerInvariant())
             // Usage and catalog, the two inventory dimensions with few enough values

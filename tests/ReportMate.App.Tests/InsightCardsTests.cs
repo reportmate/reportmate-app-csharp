@@ -156,7 +156,7 @@ public class InsightCardsTests
         Assert.Equal(["Cimian", "ReportMate"], tools.Select(t => t.Label));
         Assert.Equal("Windows", tools[0].Platform);
         Assert.Null(tools[1].Platform);
-        Assert.Equal("reportmate://devices?level=error&platform=Windows&tool=installs", tools[0].Link!.ToAppUrl());
+        Assert.Equal("reportmate://management/logs?level=error&platform=Windows&tool=installs", tools[0].Link!.ToAppUrl());
         // One message logged with and without its timestamp and level is one row.
         var top = view.Parts.OfType<ListPart>().Single().Items.Single();
         Assert.Equal("Failed to download <n> from <path>", top.Label);
