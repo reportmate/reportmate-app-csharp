@@ -25,6 +25,7 @@
     <Compile Include="..\..\src\Views\Fleet\Insights.cs" Link="Insights.cs" />
     <Compile Include="..\..\src\Views\Fleet\Insights.Cards.cs" Link="Insights.Cards.cs" />
     <Compile Include="..\..\src\Views\Fleet\ReportFilters.cs" Link="ReportFilters.cs" />
+    <Compile Include="..\..\src\Views\Fleet\InsightCards.cs" Link="InsightCards.cs" />
     <Compile Include="..\..\src\Services\EntraSignIn.cs" Link="EntraSignIn.cs" />
     <Compile Include="..\..\src\Services\ReportQueue.cs" Link="ReportQueue.cs" />
     <Compile Include="..\..\src\Views\Fleet\Network.cs" Link="Network.cs" />
@@ -38,6 +39,10 @@
     <Compile Include="..\..\src\Services\DeviceSnapshotStore.cs" Link="DeviceSnapshotStore.cs" />
     <!-- The module models reference each other, so they come in as the one set. -->
     <Compile Include="..\..\client\src\Models\Modules\*.cs" Link="Models\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Fixtures\**\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

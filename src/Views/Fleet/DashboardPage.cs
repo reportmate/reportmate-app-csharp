@@ -48,6 +48,9 @@ public sealed class DashboardPage : FleetPage
 
     protected override async Task<UIElement> BuildAsync()
     {
+        // The insights document and the dashboard payload are asked for together;
+        // the cards fill in whenever theirs arrives.
+        _ = DashboardInsightsModel.Shared.LoadAsync();
         var result = await FleetApiClient.Instance.GetDashboardAsync();
         if (!result.Ok) return FleetUnavailable(result.Status, result.Detail);
 
@@ -75,10 +78,9 @@ public sealed class DashboardPage : FleetPage
             OsVersionWidget(devices, "Windows"),
             OsVersionWidget(devices, "macOS")));
 
-        // The insight cards draw from the shared model and redraw in place as each
-        // read lands, so the page is on screen before the slow reads finish.
+        // The insight cards draw from the shared model and redraw in place when the
+        // insights document lands, which was asked for before the dashboard payload.
         var model = DashboardInsightsModel.Shared;
-        model.SetDashboard(data);
         var hosts = InsightWidgets.All.Select(card => new ContentControl
         {
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
@@ -90,14 +92,13 @@ public sealed class DashboardPage : FleetPage
 
         var layout = new DashboardLayout(status, hosts, activity) { Margin = new Thickness(0, 20, 0, 0) };
         page.Children.Add(layout);
-        _ = model.LoadAsync();
         return page;
     }
 
-    private Action<string>? _insightsHandler;
+    private Action? _insightsHandler;
 
     /// <summary>
-    /// Redraw the cards that read a source when it changes, for as long as this page
+    /// Redraw the cards when the insights document changes, for as long as this page
     /// is shown. The model outlives the page, so the handler has to come off when the
     /// page goes or every dashboard ever built would keep redrawing cards nobody sees.
     /// </summary>
@@ -105,11 +106,10 @@ public sealed class DashboardPage : FleetPage
     {
         var model = DashboardInsightsModel.Shared;
         if (_insightsHandler is not null) model.Changed -= _insightsHandler;
-        _insightsHandler = source =>
+        _insightsHandler = () =>
         {
             foreach (var host in hosts)
-                if (host.Tag is InsightCard card && card.Sources.Contains(source))
-                    host.Content = InsightWidgets.Build(card);
+                if (host.Tag is InsightCard card) host.Content = InsightWidgets.Build(card);
         };
         model.Changed += _insightsHandler;
     }

@@ -430,6 +430,47 @@ public static partial class Insights
         _ => null,
     };
 
+    private static JsonElement? Either(JsonElement parent, string snake, string camel) =>
+        Prop(parent, snake) is { ValueKind: not JsonValueKind.Null } v ? v : Prop(parent, camel);
+
+    /// <summary>
+    /// A Low network-quality rating: the overall rating, or, when there is none, a
+    /// Low download or upload rating -- <c>/network?quality=poor</c>, read the way the
+    /// dashboard insights endpoint counts it.
+    /// </summary>
+    public static bool IsPoorQuality(JsonElement row)
+    {
+        var raw = Prop(row, "raw") ?? row;
+        if (Prop(raw, "networkQuality") is not { ValueKind: JsonValueKind.Object } nq) return false;
+        var rating = Str(nq, "rating").ToLowerInvariant();
+        if (rating.Length > 0) return rating == "low";
+        var dl = (Str(nq, "dlRating") is { Length: > 0 } d ? d : Str(nq, "dl_rating")).ToLowerInvariant();
+        var ul = (Str(nq, "ulRating") is { Length: > 0 } u ? u : Str(nq, "ul_rating")).ToLowerInvariant();
+        return dl == "low" || ul == "low";
+    }
+
+    /// <summary>
+    /// On a VPN: the active connection says so, runs over a utun or ppp interface, or
+    /// a named VPN connection is connected -- <c>/network?vpn=1</c>.
+    /// </summary>
+    public static bool IsOnVpn(JsonElement row)
+    {
+        var raw = Prop(row, "raw") ?? row;
+        if (Either(raw, "active_connection", "activeConnection") is { ValueKind: JsonValueKind.Object } ac)
+        {
+            if (BoolishIfPresent(ac, "is_vpn_active") ?? BoolishIfPresent(ac, "isVpnActive") ?? false) return true;
+            var iface = new[] { "interface_name", "interfaceName", "interface", "friendly_name", "friendlyName" }
+                .Select(n => Str(ac, n)).FirstOrDefault(v => v.Length > 0) ?? "";
+            if (iface.StartsWith("utun", StringComparison.Ordinal) || iface.StartsWith("ppp", StringComparison.Ordinal)) return true;
+        }
+        if (Either(raw, "vpn_connections", "vpnConnections") is { ValueKind: JsonValueKind.Array } vpns)
+            foreach (var v in vpns.EnumerateArray())
+                if (Str(v, "status").Equals("connected", StringComparison.OrdinalIgnoreCase)
+                    && Str(v, "name") is { Length: > 0 } name && name != "Unknown VPN")
+                    return true;
+        return false;
+    }
+
     public static int Printers(JsonElement row) => Prop(row, "printers") is { ValueKind: JsonValueKind.Array } p ? p.GetArrayLength() : 0;
 
     public static int Displays(JsonElement row) =>

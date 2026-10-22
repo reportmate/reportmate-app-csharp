@@ -8,256 +8,149 @@ using ReportMate.App.Views.Shared;
 namespace ReportMate.App.Views.Fleet;
 
 /// <summary>
-/// The reports behind the dashboard's insight cards. The dashboard payload carries
-/// devices, events and install counters only, so these load after it and each card
-/// fills in as the reads it needs answer.
+/// The dashboard's insight cards, read in one call: <c>GET /api/v1/dashboard/insights</c>.
 /// </summary>
 /// <remarks>
+/// The server computes every card with aggregate SQL and caches it for five
+/// minutes, so a dashboard downloads a few kilobytes of counts and short lists
+/// instead of a dozen bulk reports. Reading those reports from every client pushed
+/// the API container to its memory limit until it restarted.
+///
 /// One shared copy rather than one per page: the platform toggle and every
-/// navigation rebuild the dashboard page, and re-reading a dozen fleet reports each
-/// time would cost minutes of API time to redraw numbers that have not changed.
-/// Each read is shared by every card that needs it -- one <c>/security</c> read feeds
-/// Security Posture, Software Risk and Certificates. Rows are kept unfiltered and the
-/// platform scope is applied when a card is drawn, so a toggle redraws from what is
-/// already here.
+/// navigation rebuild the dashboard page. The document is kept per platform scope,
+/// so toggling back is instant, and refreshed when older than four minutes -- the
+/// page's own timer fires every five.
 /// </remarks>
 public sealed class DashboardInsightsModel
 {
     public static DashboardInsightsModel Shared { get; } = new();
 
-    /// <summary>
-    /// The reads, in the order they are requested.
-    /// </summary>
-    /// <remarks>
-    /// Not the managed items. That read is 130,000 rows across two dozen pages,
-    /// and every dashboard pulling it pushed the API container to its memory limit
-    /// until it restarted. Install Health and Software Risk show their counts, and
-    /// say their item lists are unavailable, until the cached dashboard insights
-    /// endpoint serves those lists.
-    /// </remarks>
-    public static readonly IReadOnlyList<string> Sources =
-    [
-        "security", "management", "hardware", "system",
-        "installs-filters", "failures", "identity", "network",
-        "peripherals", "certificates", "app-usage",
-    ];
-
-    /// <summary>The bulk module reports, read as rows: <c>/api/v1/&lt;module&gt;</c>.</summary>
-    private static readonly HashSet<string> Modules = ["security", "management", "hardware", "system", "identity", "network", "peripherals"];
-
-    // Four minutes, not five: the page's own timer fires every five, and a load
-    // stamped when it finished would otherwise still look fresh at the next tick and
-    // skip a refresh.
     private static readonly TimeSpan Fresh = TimeSpan.FromMinutes(4);
 
-    private readonly Dictionary<string, List<JsonElement>> _rows = new();
-    private readonly Dictionary<string, JsonElement> _documents = new();
-    private readonly Dictionary<string, string> _errors = new();
-    private readonly HashSet<string> _loading = new();
-    private List<Insights.InstallItem>? _installs;
-    private DateTime? _loadedAt;
-    private Task? _inFlight;
+    private readonly Dictionary<PlatformScope, (JsonElement Document, DateTime At)> _documents = new();
+    private readonly Dictionary<PlatformScope, string> _errors = new();
+    private readonly Dictionary<PlatformScope, Task> _inFlight = new();
 
-    /// <summary>Raised on the UI thread with the read's id when its state changes.</summary>
-    public event Action<string>? Changed;
+    /// <summary>Raised on the UI thread whenever a document arrives or a read fails.</summary>
+    public event Action? Changed;
 
-    /// <summary>The dashboard payload the page loaded, for the cards that count from it.</summary>
-    public DashboardPayload? Dashboard { get; private set; }
+    private static PlatformScope Scope => PlatformFilter.Current;
 
-    public void SetDashboard(DashboardPayload payload)
+    /// <summary>The <c>platform</c> query value for a scope.</summary>
+    public static string PlatformParameter(PlatformScope scope) => scope switch
     {
-        Dashboard = payload;
-        Changed?.Invoke("dashboard");
-    }
+        PlatformScope.Mac => "macOS",
+        PlatformScope.Windows => "Windows",
+        _ => "all",
+    };
 
-    /// <summary>A report's rows, narrowed to the toolbar's platform scope.</summary>
-    public IReadOnlyList<JsonElement> Rows(string source) =>
-        _rows.TryGetValue(source, out var rows)
-            ? PlatformFilter.Current == PlatformScope.All ? rows : rows.Where(r => PlatformFilter.Includes(Insights.Platform(r))).ToList()
-            : [];
+    /// <summary>One card's section for the current scope, or null until the document arrives.</summary>
+    public JsonElement? Card(string key) =>
+        _documents.TryGetValue(Scope, out var d) && Insights.Prop(d.Document, "cards") is { } cards
+            ? Insights.Prop(cards, key)
+            : null;
 
-    public bool Has(string source) => _rows.ContainsKey(source) || _documents.ContainsKey(source)
-        || (source == "installs" && _installs is not null);
+    public bool HasDocument => _documents.ContainsKey(Scope);
 
-    public JsonElement? Document(string source) => _documents.TryGetValue(source, out var d) ? d : null;
+    /// <summary>Why the last read for the current scope failed, while there is no document to show.</summary>
+    public string? Error => _errors.GetValueOrDefault(Scope);
 
-    /// <summary>Managed items, reduced to what the cards count; null until (or unless) they load.</summary>
-    public IReadOnlyList<Insights.InstallItem>? Installs =>
-        _installs is null ? null
-        : PlatformFilter.Current == PlatformScope.All ? _installs
-        : _installs.Where(i => PlatformFilter.Includes(i.Platform)).ToList();
+    public bool IsLoading => _inFlight.TryGetValue(Scope, out var t) && !t.IsCompleted;
 
-    public string? Error(string source) => _errors.GetValueOrDefault(source);
-
-    public bool IsLoading(string source) => _loading.Contains(source);
+    /// <summary>When the server computed the document on screen.</summary>
+    public DateTime? GeneratedAt =>
+        _documents.TryGetValue(Scope, out var d) && DateTime.TryParse(Insights.Str(d.Document, "generatedAt"),
+            null, System.Globalization.DateTimeStyles.AdjustToUniversal, out var at) ? at : null;
 
     public Task LoadAsync(bool force = false)
     {
-        if (_inFlight is { IsCompleted: false }) return _inFlight;
-        if (!force && _loadedAt is { } at && DateTime.UtcNow - at < Fresh) return Task.CompletedTask;
-        return _inFlight = LoadCoreAsync();
+        var scope = Scope;
+        if (_inFlight.TryGetValue(scope, out var running) && !running.IsCompleted) return running;
+        if (!force && _documents.TryGetValue(scope, out var d) && DateTime.UtcNow - d.At < Fresh) return Task.CompletedTask;
+        var task = LoadCoreAsync(scope);
+        _inFlight[scope] = task;
+        Changed?.Invoke();
+        return task;
     }
 
-    private async Task LoadCoreAsync()
+    /// <summary>Read the document again, for a card's Retry.</summary>
+    public Task RetryAsync() => LoadAsync(force: true);
+
+    private async Task LoadCoreAsync(PlatformScope scope)
     {
-        foreach (var source in Sources)
+        JsonElement? document = null;
+        var outcome = await ReportQueue.RunAsync(async ct =>
         {
-            _loading.Add(source);
-            Changed?.Invoke(source);
-        }
+            var r = await FleetApiClient.Instance.GetRawAsync(
+                $"/api/v1/dashboard/insights?platform={PlatformParameter(scope)}", ct);
+            if (!r.Ok) return new FetchOutcome(r.Detail ?? "The dashboard insights could not be loaded.", r.Transient);
+            using var doc = r.Data!;
+            document = doc.RootElement.Clone();
+            return FetchOutcome.Success;
+        }, ReportQueue.DefaultTimeout);
 
-        // Two at a time: each bulk report takes the API ten seconds or more, and
-        // four at once had the gateway answer 503 for the last of them. Each read has
-        // a deadline, so one the API never answers frees its slot and its card says
-        // so, rather than spinning while the reads behind it wait.
-        await ReportQueue.RunAllAsync(Sources, 2, FetchOnceAsync, Finish, Timeout);
-        _loadedAt = DateTime.UtcNow;
-    }
-
-    /// <summary>
-    /// Forty-five seconds a read, the paged managed items included: the whole
-    /// paging run shares that one deadline and stops requesting pages when it
-    /// passes. The three minutes it had before left two cards in skeleton for most
-    /// of that, and kept the API paging a 130,000-row report nobody was waiting for.
-    /// </summary>
-    private static TimeSpan Timeout(string source) => ReportQueue.DefaultTimeout;
-
-    /// <summary>Read one source again, for a card's Retry button.</summary>
-    public async Task RetryAsync(string source)
-    {
-        if (!_loading.Add(source)) return;
-        _errors.Remove(source);
-        Changed?.Invoke(source);
-        await ReportQueue.RunAllAsync([source], 1, FetchOnceAsync, Finish, Timeout);
-    }
-
-    private void Finish(string source, FetchOutcome outcome)
-    {
-        // Data from the last good read stays: a failed refresh should not blank a
-        // card that was showing something true five minutes ago.
-        if (outcome.Ok) _errors.Remove(source);
-        else _errors[source] = outcome.Error!;
-        _loading.Remove(source);
-        Changed?.Invoke(source);
-    }
-
-    private static FetchOutcome Outcome<T>(FleetApiClient.FleetResult<T> r) =>
-        r.Ok ? FetchOutcome.Success : new FetchOutcome(r.Detail ?? "This could not be loaded.", r.Transient);
-
-    private async Task<FetchOutcome> FetchOnceAsync(string source, CancellationToken ct)
-    {
-        var api = FleetApiClient.Instance;
-        if (Modules.Contains(source))
+        if (outcome.Ok && document is { } d)
         {
-            var r = await api.GetModuleAsync(source, ct: ct);
-            if (r.Ok) _rows[source] = r.Data!;
-            return Outcome(r);
+            _documents[scope] = (d, DateTime.UtcNow);
+            _errors.Remove(scope);
         }
-
-        switch (source)
+        else
         {
-            case "certificates":
-            {
-                var r = await api.GetTypedAsync<List<JsonElement>>("/api/v1/security/certificates?status=expiring&limit=10000", ct);
-                if (r.Ok) _rows[source] = r.Data!;
-                return Outcome(r);
-            }
-            case "installs":
-            {
-                // Followed page by page, as the installs report does: one request
-                // returns the first fifty devices' items and nothing else.
-                var r = await api.GetAllPagesAsync("installs", 5000, ct: ct);
-                if (r.Ok)
-                {
-                    var rows = r.Data!;
-                    _installs = await Task.Run(() => rows.Select(Insights.ToInstallItem).OfType<Insights.InstallItem>().ToList(), ct);
-                }
-                return Outcome(r);
-            }
-            default:
-            {
-                var path = source switch
-                {
-                    "installs-filters" => "/api/v1/installs/filters",
-                    "failures" => "/api/v1/events/failures?hours=24&limit=1",
-                    _ => "/api/v1/applications/usage?days=30",
-                };
-                var r = await api.GetRawAsync(path, ct);
-                if (r.Ok)
-                    using (var doc = r.Data!)
-                        _documents[source] = doc.RootElement.Clone();
-                return Outcome(r);
-            }
+            // The last good document stays on screen: a failed refresh should not
+            // blank cards that were showing something true five minutes ago.
+            _errors[scope] = outcome.Error ?? "The dashboard insights could not be loaded.";
         }
+        _inFlight.Remove(scope);
+        Changed?.Invoke();
     }
 }
 
-/// <summary>One insight card: what it is called, what it reads, and how it draws.</summary>
-/// <param name="Primary">
-/// The read the card cannot draw without. Null for a card that always has something
-/// to show, because the dashboard payload carries part of it.
-/// </param>
+/// <summary>One insight card: its title, where its header goes, and its skeleton's shape.</summary>
 public sealed record InsightCard(
-    string Id, string Title, string Subtitle, Accent Accent, string Glyph, DeepLink Header,
-    string? Primary, IReadOnlyList<string> Sources, Func<DashboardInsightsModel, UIElement> Body,
-    InsightShape Shape = InsightShape.Bars);
+    string Key, string Title, string Subtitle, Accent Accent, string Glyph, DeepLink Header,
+    InsightShape Shape = InsightShape.Figures);
 
 /// <summary>
-/// The twelve insight cards, in the order the shared spec lists them. Every number,
-/// bar, legend row and chip opens the report that owns it with that filter applied,
-/// and every header opens the report unfiltered.
+/// The twelve insight cards of the shared spec's revision 2, each answering one
+/// question. Every number, bar, list row and chip follows the link the server sent
+/// with it, and every header opens its report unfiltered.
 /// </summary>
 public static class InsightWidgets
 {
     private static string GlyphOf(string report) => ReportArea.ById(report)?.Glyph ?? "";
 
-    private static DeepLink L(string section, params (string, string?)[] filters) => DeepLink.For(section, null, filters);
+    private static DeepLink L(string section) => DeepLink.For(section);
 
     public static readonly IReadOnlyList<InsightCard> All =
     [
-        new("system", "System Health", "Uptime and pending updates", Accent.Orange, GlyphOf("system"),
-            L("system"), "system", ["system"], m => SystemBody(m.Rows("system"))),
-        new("security", "Security Posture", "Fleet-wide protections in place", Accent.Green, GlyphOf("security"),
-            L("security"), "security", ["security"], m => SecurityBody(m.Rows("security"))),
-        new("management", "Management", "MDM enrollment across the fleet", Accent.Purple, GlyphOf("management"),
-            L("management"), "management", ["management"], m => ManagementBody(m.Rows("management")), InsightShape.Donut),
-        new("hardware", "Hardware", "Architecture, memory and storage", Accent.Teal, GlyphOf("hardware"),
-            L("hardware"), "hardware", ["hardware"], m => HardwareBody(m.Rows("hardware")), InsightShape.Donut),
-        new("install-health", "Install Health", "Munki and Cimian across the fleet", Accent.Emerald, GlyphOf("installs"),
-            L("installs"), null, ["dashboard", "installs-filters", "installs"], InstallHealthBody, InsightShape.Figures),
-        new("check-ins", "Check-in Gaps", "Turned away, and gone quiet", Accent.Red, "",
-            DeepLink.For("events", "failures", ("hours", "24")), null, ["dashboard", "failures"], CheckInsBody, InsightShape.Figures),
-        new("os-currency", "OS Currency", "On the latest patch for their version", Accent.Purple, GlyphOf("system"),
-            L("system"), "system", ["system"], m => OsCurrencyBody(m.Rows("system")), InsightShape.Donut),
-        new("software-risk", "Software Risk", "Vulnerabilities and items behind", Accent.Red, GlyphOf("security"),
-            L("security"), "security", ["security", "installs"], SoftwareRiskBody, InsightShape.Figures),
-        new("certificates", "Certificates", "Expiring within 30 days", Accent.Yellow, "",
-            L("security"), "certificates", ["certificates", "security"], CertificatesBody, InsightShape.Figures),
-        new("identity", "Identity", "Directory join, admins and usage", Accent.Indigo, GlyphOf("identity"),
-            L("identity"), "identity", ["identity"], m => IdentityBody(m.Rows("identity")), InsightShape.Donut),
-        new("app-usage", "App Usage", "The last 30 days", Accent.Blue, GlyphOf("applications"),
-            L("applications"), "app-usage", ["app-usage"], AppUsageBody),
-        new("network", "Network & Peripherals", "Connections, printers and displays", Accent.Teal, GlyphOf("network"),
-            L("network"), "network", ["network", "peripherals", "hardware"], NetworkBody, InsightShape.Donut),
+        new("rebootDebt", "Reboot & Update Debt", "Long uptimes and waiting updates", Accent.Orange, GlyphOf("system"), L("system"), InsightShape.Bars),
+        new("protectionGaps", "Protection Gaps", "Devices missing a protection", Accent.Red, GlyphOf("security"), L("security"), InsightShape.Bars),
+        new("unmanagedDevices", "Unmanaged Devices", "Not enrolled in MDM", Accent.Purple, GlyphOf("management"), L("management")),
+        new("hardwareAtRisk", "Hardware at Risk", "Storage, memory and Intel Macs", Accent.Orange, GlyphOf("hardware"), L("hardware")),
+        new("installHealth", "Install Health", "Munki and Cimian across the fleet", Accent.Emerald, GlyphOf("installs"), L("installs")),
+        new("checkinGaps", "Check-in Gaps", "Turned away, and gone quiet", Accent.Red, "",
+            DeepLink.For("events", "failures", ("hours", "24"))),
+        new("osCurrency", "OS Currency", "On the latest patch for their version", Accent.Purple, GlyphOf("system"), L("system"), InsightShape.Donut),
+        new("softwareRisk", "Software Risk", "Vulnerabilities and items behind", Accent.Red, GlyphOf("security"), L("security")),
+        new("expiringCertificates", "Expiring Certificates", "Expiring soon, and already expired", Accent.Yellow, "", L("security")),
+        new("localAdminExposure", "Local Admin Exposure", "Extra local admins and unjoined devices", Accent.Indigo, GlyphOf("identity"), L("identity")),
+        new("unusedSoftware", "Unused Software", "Installed widely, rarely used", Accent.Blue, GlyphOf("applications"), L("applications"), InsightShape.Bars),
+        new("connectivityProblems", "Connectivity Problems", "Weak Wi-Fi, poor networks and VPN", Accent.Teal, GlyphOf("network"), L("network")),
     ];
 
-    /// <summary>The card in whatever state the shared model holds its reads.</summary>
+    /// <summary>The card in whatever state the shared model holds it.</summary>
     public static UIElement Build(InsightCard card)
     {
         var model = DashboardInsightsModel.Shared;
         UIElement body;
-        if (card.Primary is { } primary && !model.Has(primary))
-        {
-            var error = model.Error(primary);
-            body = model.IsLoading(primary) ? Skeleton.Pulse(Skeleton.InsightBody(card.Shape))
-                : error is not null ? Failed(error, primary)
-                // Not asked for yet: the load starts a moment after the page draws.
+        if (!model.HasDocument)
+            body = model.Error is { } error && !model.IsLoading
+                ? Failed(error)
                 : Skeleton.Pulse(Skeleton.InsightBody(card.Shape));
-        }
         else
         {
-            try { body = card.Body(model); }
-            catch (Exception ex) { body = Message($"This card could not be drawn: {ex.Message}"); }
+            var view = InsightCards.Build(card.Key, model.Card(card.Key), PlatformFilter.Current != PlatformScope.All);
+            body = view.Error is { } error ? Failed(error) : Render(view);
         }
 
         var chevron = Ui.Icon("", 12, Ui.Brush("TextTertiaryBrush"));
@@ -265,390 +158,99 @@ public static class InsightWidgets
         return Linkable.LinkHeader(block, card.Header);
     }
 
-    // ── 1 System Health ──────────────────────────────────────────────────
+    // ── Rendering a card's parts ─────────────────────────────────────────
 
-    private static UIElement SystemBody(IReadOnlyList<JsonElement> rows)
+    private static UIElement Render(CardView view)
     {
-        if (rows.Count == 0) return Message("No data");
-        var s = Insights.SystemOverview(rows);
-        var max = Math.Max(1, s.Uptime.Max(b => b.Count));
-
         var body = new StackPanel();
-        body.Children.Add(Eyebrow("UPTIME", top: 0));
-        for (var i = 0; i < s.Uptime.Count; i++)
+        var first = true;
+        foreach (var part in view.Parts)
         {
-            var (label, count) = s.Uptime[i];
-            body.Children.Add(BarRow(label, count, (double)count / max, Ui.StatusBrush(Tone.Orange),
-                L("system", ("uptime", Insights.UptimeKeys[i])), labelWidth: 84));
-        }
-        body.Children.Add(Chips(
-            Chip(s.Pending, "with pending updates", Tone.Warning, L("system", ("pending", Insights.AnyPending))),
-            Chip(s.Deferred, "with deferred updates", Tone.Orange, L("system", ("deferred", "1")))));
-        return body;
-    }
-
-    // ── 2 Security Posture ───────────────────────────────────────────────
-
-    private static UIElement SecurityBody(IReadOnlyList<JsonElement> rows)
-    {
-        if (rows.Count == 0) return Message("No data");
-        var posture = Insights.Security(rows);
-        var body = new StackPanel();
-        // A protection row opens the devices missing it: that is the list to act on.
-        foreach (var row in posture.Rows)
-            body.Children.Add(Linkable.Wrap(ComplianceRow(row), L("security", (row.Key, "off")),
-                $"Open the security report, filtered to devices without {row.Label.ToLowerInvariant()}"));
-        body.Children.Add(Chips(
-            Chip(posture.WithThreats, "with threats", Tone.Error, L("security", ("threats", "1"))),
-            Chip(posture.ExpiredCerts, "expired certs", Tone.Warning, L("security", ("certs", "expired"))),
-            Chip(posture.CriticalCves, "critical CVEs", Tone.Orange, L("security", ("cve", "critical")))));
-        return body;
-    }
-
-    // ── 3 Management ─────────────────────────────────────────────────────
-
-    private static UIElement ManagementBody(IReadOnlyList<JsonElement> rows)
-    {
-        if (rows.Count == 0) return Message("No data");
-        var m = Insights.ManagementOverview(rows);
-        var percent = m.Total == 0 ? 0 : (int)Math.Round((double)m.Enrolled / m.Total * 100);
-
-        var body = new StackPanel();
-        body.Children.Add(DonutWithLegend(
-            [
-                ("Enrolled", m.Enrolled, Ui.StatusBrush(Tone.Success), L("management", ("enrolled", "1"))),
-                ("Not Enrolled", m.Total - m.Enrolled, Ui.Brush("SubtleFillHoverBrush"), L("management", ("enrolled", "0"))),
-            ], $"{percent}%", "enrolled"));
-
-        if (m.TopProviders.Count > 0)
-        {
-            body.Children.Add(Eyebrow("PROVIDERS"));
-            var max = Math.Max(1, m.TopProviders[0].Count);
-            foreach (var (name, count) in m.TopProviders)
-                body.Children.Add(ProviderRow(name, count, max, L("management", ("provider", name))));
+            var element = part switch
+            {
+                FiguresPart f => Figures(f),
+                BarsPart b => Bars(b, first),
+                ChipsPart c => Chips(c.Items.Select(Chip).ToArray()),
+                DonutPart d => Donut(d),
+                ListPart l => List(l, first),
+                NotePart n => Note(n.Text),
+                _ => new Border(),
+            };
+            body.Children.Add(element);
+            first = false;
         }
         return body;
     }
 
-    private static UIElement ProviderRow(string name, int count, int max, DeepLink link)
+    private static UIElement Figures(FiguresPart part)
     {
-        var row = new Grid();
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(78) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
-        var label = Ui.Text(name);
-        label.FontSize = 13;
-        label.TextTrimming = TextTrimming.CharacterEllipsis;
-        row.Children.Add(label);
-        var bar = new Border
-        {
-            Height = 6, CornerRadius = new CornerRadius(3),
-            Width = Math.Max(2, 70.0 * count / max),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center,
-            Background = Ui.Brush("IconPurpleForeground"),
-            Opacity = 0.55,
-        };
-        Grid.SetColumn(bar, 1);
-        row.Children.Add(bar);
-        var n = Number(count);
-        Grid.SetColumn(n, 2);
-        row.Children.Add(n);
-        return Row(row, link);
+        var cells = part.Items.Select(Figure).ToArray();
+        return Ui.Columns(Math.Max(1, cells.Length), 10, cells);
     }
 
-    // ── 4 Hardware ───────────────────────────────────────────────────────
-
-    private static UIElement HardwareBody(IReadOnlyList<JsonElement> rows)
+    private static UIElement Bars(BarsPart part, bool first)
     {
-        if (rows.Count == 0) return Message("No data");
-        var h = Insights.HardwareOverview(rows);
-        Brush FamilyBrush(string family) => family switch
+        var panel = new StackPanel();
+        if (part.Heading is { } heading) panel.Children.Add(Eyebrow(heading, first ? 0 : 14));
+        var max = Math.Max(1, part.Items.Count == 0 ? 1 : part.Items.Max(i => i.Count));
+        foreach (var item in part.Items)
+            panel.Children.Add(BarRow(item, item.Fraction ?? item.Count / max));
+        return panel;
+    }
+
+    private static UIElement List(ListPart part, bool first)
+    {
+        var panel = new StackPanel();
+        if (part.Heading is { } heading) panel.Children.Add(Eyebrow(heading, first ? 0 : 14));
+        foreach (var item in part.Items)
         {
-            "Apple Silicon" => Ui.Brush("IconBlueForeground"),
-            "Intel" => Ui.Brush("IconIndigoForeground"),
-            "ARM64" => Ui.Brush("IconTealForeground"),
-            "x64" => Ui.Brush("IconCyanForeground"),
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var label = Ui.Text(item.Label);
+            label.FontSize = 13;
+            label.TextTrimming = TextTrimming.CharacterEllipsis;
+            label.ToolTip = item.Label;
+            row.Children.Add(PlatformIcon.Labelled(item.Platform, label, 12));
+            var detail = Ui.Caption(item.Detail ?? "");
+            detail.Margin = new Thickness(8, 0, 0, 0);
+            Grid.SetColumn(detail, 1);
+            row.Children.Add(detail);
+            panel.Children.Add(item.Link is { } link ? Row(row, link) : row);
+        }
+        return panel;
+    }
+
+    private static UIElement Donut(DonutPart part)
+    {
+        Brush Paint(Severity s) => s switch
+        {
+            Severity.Good => Ui.StatusBrush(Tone.Success),
+            Severity.Warning => Ui.StatusBrush(Tone.Warning),
+            Severity.Bad => Ui.StatusBrush(Tone.Error),
+            Severity.Info => Ui.Brush("IconBlueForeground"),
             _ => Ui.Brush("SubtleFillHoverBrush"),
         };
-
-        var body = new StackPanel();
-        body.Children.Add(DonutWithLegend(
-            h.Families.Select(f => (f.Family, f.Count, FamilyBrush(f.Family),
-                f.Family == "Unknown" ? L("hardware") : L("hardware", ("arch", f.Family)))).ToList(),
-            h.Total.ToString("N0"), "devices"));
-        var chips = Chips(
-            Chip(h.LowStorage, "under 10% free", Tone.Error, L("hardware", ("storage", "low"))),
-            Chip(h.LowMemory, "8 GB or less", Tone.Warning, L("hardware", ("memory", "le8"))),
-            Chip(h.Laptops, "laptops", Tone.Info, L("hardware", ("type", "laptop"))));
-        chips.Margin = new Thickness(0, 16, 0, 0);
-        body.Children.Add(chips);
-        return body;
+        return DonutWithLegend(part.Slices.Select(s => (s.Label, (int)s.Count, Paint(s.Severity), s.Link)).ToList(),
+            part.Centre, part.CentreLabel);
     }
 
-    // ── 5 Install Health ─────────────────────────────────────────────────
-
-    private static UIElement InstallHealthBody(DashboardInsightsModel m)
+    private static UIElement Note(string text)
     {
-        var body = new StackPanel();
-        var stats = m.Dashboard?.InstallStats;
-        var (errors, warnings) = stats is null ? (0, 0) : PlatformFilter.Current switch
-        {
-            PlatformScope.Windows => (stats.WinDevicesWithErrors, stats.WinDevicesWithWarnings),
-            PlatformScope.Mac => (stats.MacDevicesWithErrors, stats.MacDevicesWithWarnings),
-            _ => (stats.DevicesWithErrors, stats.DevicesWithWarnings),
-        };
-        body.Children.Add(Ui.Columns(2, 10,
-            Figure(errors, "devices with errors", Tone.Error, L("installs", ("filter", "errors"))),
-            Figure(warnings, "devices with warnings", Tone.Warning, L("installs", ("filter", "warnings")))));
-
-        body.Children.Add(Eyebrow("TOP FAILING ITEMS"));
-        if (m.Installs is { } items)
-        {
-            var top = Insights.TopFailing(items);
-            if (top.Count == 0) body.Children.Add(Message("No item is failing."));
-            var max = Math.Max(1, top.Count > 0 ? top[0].Devices : 1);
-            foreach (var (name, devices) in top)
-                body.Children.Add(BarRow(name, devices, (double)devices / max, Ui.StatusBrush(Tone.Error),
-                    L("installs", ("item", name), ("filter", "errors"))));
-        }
-        else body.Children.Add(Pending(m, "installs", Unavailable));
-
-        if (m.Document("installs-filters") is { } filters)
-        {
-            var stale = Insights.StaleAgents(filters, PlatformFilter.Includes);
-            var chips = Chips(Chip(stale.Count, $"agents silent over {stale.ThresholdDays} days", Tone.Warning,
-                L("installs", ("stale", "1"))));
-            chips.Margin = new Thickness(0, 10, 0, 0);
-            body.Children.Add(chips);
-        }
-        else if (m.IsLoading("installs-filters")) body.Children.Add(Skeleton.Pulse(Skeleton.Chips(1)));
-        else if (m.Error("installs-filters") is { } staleError)
-            body.Children.Add(Failed($"Stale agents could not be loaded. {staleError}", "installs-filters"));
-        return body;
+        var t = Ui.Caption(text);
+        t.TextWrapping = TextWrapping.Wrap;
+        t.Margin = new Thickness(0, 6, 0, 4);
+        return t;
     }
 
-    // ── 6 Check-in Gaps ──────────────────────────────────────────────────
-
-    private static UIElement CheckInsBody(DashboardInsightsModel m)
+    private static Tone ToneOf(Severity s) => s switch
     {
-        var body = new StackPanel();
-        if (m.Document("failures") is { } failures)
-        {
-            var c = Insights.CheckIns(failures);
-            DeepLink Outcome(string o) => DeepLink.For("events", "failures", ("hours", "24"), ("outcome", o));
-            body.Children.Add(Ui.Columns(3, 8,
-                Figure(c.Rejected, "rejected", Tone.Error, Outcome("rejected")),
-                Figure(c.Retried, "retried", Tone.Neutral, Outcome("retried")),
-                Figure(c.Accepted, "repaired", Tone.Info, Outcome("accepted"))));
-            var caption = Ui.Caption(PlatformFilter.Current == PlatformScope.All
-                ? "In the last 24 hours"
-                : "In the last 24 hours · All platforms: check-ins are not split by platform");
-            caption.TextWrapping = TextWrapping.Wrap;
-            caption.Margin = new Thickness(0, 4, 0, 0);
-            body.Children.Add(caption);
-
-            if (c.Reasons.Count > 0)
-            {
-                body.Children.Add(Eyebrow("REASONS"));
-                var max = Math.Max(1, c.Reasons[0].Count);
-                foreach (var (reason, count, _) in c.Reasons.Take(5))
-                    body.Children.Add(BarRow(FailureReason.Label(reason), count, (double)count / max, Ui.StatusBrush(Tone.Error),
-                        DeepLink.For("events", "failures", ("hours", "24"), ("reason", reason))));
-            }
-        }
-        else body.Children.Add(Pending(m, "failures", "Failed check-ins could not be loaded."));
-
-        if (m.Dashboard is { } dashboard)
-        {
-            var devices = PlatformFilter.Apply(dashboard.Devices);
-            var stale = devices.Count(d => DeviceStatus.Calculate(d) == DeviceLiveness.Stale);
-            var missing = devices.Count(d => DeviceStatus.Calculate(d) == DeviceLiveness.Missing);
-            body.Children.Add(Eyebrow("SILENT DEVICES"));
-            body.Children.Add(Chips(
-                Chip(stale, "silent 1–7 days", Tone.Warning, L("devices", ("status", "stale"))),
-                Chip(missing, "silent over 7 days", Tone.Error, L("devices", ("status", "missing")))));
-        }
-        return body;
-    }
-
-    // ── 7 OS Currency ────────────────────────────────────────────────────
-
-    private static UIElement OsCurrencyBody(IReadOnlyList<JsonElement> rows)
-    {
-        if (rows.Count == 0) return Message("No data");
-        var c = Insights.OsCurrency(rows);
-        var percent = (int)Math.Round(c.LatestFraction * 100);
-        var body = new StackPanel();
-        body.Children.Add(DonutWithLegend(
-            [
-                ("On latest patch", c.OnLatest, Ui.StatusBrush(Tone.Success), L("system", ("patch", "latest"))),
-                ("Behind", c.Behind, Ui.StatusBrush(Tone.Warning), L("system", ("patch", "behind"))),
-            ], $"{percent}%", "latest"));
-        body.Children.Add(Chips(
-            Chip(c.UnsupportedMac, "unsupported macOS", Tone.Error, L("system", ("os", "unsupported"))),
-            Chip(c.Windows10, "Windows 10", Tone.Warning, L("system", ("os", "windows10")))));
-        if (c.Lagging.Count > 0)
-        {
-            body.Children.Add(Eyebrow("MOST BEHIND"));
-            var max = Math.Max(1, c.Lagging[0].Count);
-            foreach (var (version, count) in c.Lagging)
-                body.Children.Add(BarRow(version, count, (double)count / max, Ui.StatusBrush(Tone.Warning),
-                    L("system", ("osVersion", version))));
-        }
-        return body;
-    }
-
-    // ── 8 Software Risk ──────────────────────────────────────────────────
-
-    private static UIElement SoftwareRiskBody(DashboardInsightsModel m)
-    {
-        var risk = Insights.SoftwareRisk(m.Rows("security"));
-        var body = new StackPanel();
-        body.Children.Add(Ui.Columns(2, 10,
-            Figure(risk.CriticalDevices, "devices with critical CVEs", Tone.Error, L("security", ("cve", "critical"))),
-            Figure(risk.ExploitedDevices, "with actively exploited CVEs", Tone.Orange, L("security", ("cve", "exploited")))));
-
-        body.Children.Add(Eyebrow("MOST DEVICES BEHIND"));
-        if (m.Installs is { } items)
-        {
-            var top = Insights.TopBehind(items);
-            if (top.Count == 0) body.Children.Add(Message("Every managed item is on its latest version."));
-            var max = Math.Max(1, top.Count > 0 ? top[0].Devices : 1);
-            foreach (var (name, devices) in top)
-                body.Children.Add(BarRow(name, devices, (double)devices / max, Ui.StatusBrush(Tone.Orange),
-                    L("installs", ("item", name))));
-        }
-        else body.Children.Add(Pending(m, "installs", Unavailable));
-        return body;
-    }
-
-    // ── 9 Certificates ───────────────────────────────────────────────────
-
-    private static UIElement CertificatesBody(DashboardInsightsModel m)
-    {
-        var c = Insights.Certificates(m.Rows("certificates"), m.Rows("security"));
-        var body = new StackPanel();
-        body.Children.Add(Ui.Columns(2, 10,
-            Figure(c.ExpiringCerts, $"certificates on {c.ExpiringDevices:N0} devices", Tone.Warning,
-                L("security", ("certStatus", "expiring"))),
-            Figure(c.ExpiredDevices, "devices with expired user certs", Tone.Error, L("security", ("certs", "expired")))));
-
-        if (c.Soonest.Count > 0)
-        {
-            body.Children.Add(Eyebrow("EXPIRING SOONEST"));
-            foreach (var (name, days, count) in c.Soonest)
-            {
-                var row = new Grid();
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                var label = Ui.Text(name);
-                label.FontSize = 13;
-                label.TextTrimming = TextTrimming.CharacterEllipsis;
-                row.Children.Add(label);
-                var when = Ui.Caption(days <= 0 ? $"today · {count:N0}" : $"{days:N0}d · {count:N0}");
-                when.Margin = new Thickness(8, 0, 0, 0);
-                Grid.SetColumn(when, 1);
-                row.Children.Add(when);
-                body.Children.Add(Row(row, L("security", ("certSearch", name), ("certStatus", "expiring"))));
-            }
-        }
-        return body;
-    }
-
-    // ── 10 Identity ──────────────────────────────────────────────────────
-
-    private static UIElement IdentityBody(IReadOnlyList<JsonElement> rows)
-    {
-        if (rows.Count == 0) return Message("No data");
-        var s = Insights.Identity(rows);
-        Brush JoinBrush(string key) => key switch
-        {
-            "entra" => Ui.Brush("IconBlueForeground"),
-            "hybrid" => Ui.Brush("IconIndigoForeground"),
-            "domain" => Ui.Brush("IconPurpleForeground"),
-            _ => Ui.Brush("SubtleFillHoverBrush"),
-        };
-        var body = new StackPanel();
-        body.Children.Add(DonutWithLegend(
-            s.Joins.Select(j => (j.Label, j.Count, JoinBrush(j.Key), L("identity", ("join", j.Key)))).ToList(),
-            s.Total.ToString("N0"), "devices"));
-        var chips = Chips(
-            Chip(s.ExtraAdmins, "with extra local admins", Tone.Warning, L("identity", ("admins", "extra"))),
-            Chip(s.Shared, "shared", Tone.Info, L("identity", ("usage", "shared"))),
-            Chip(s.Assigned, "assigned", Tone.Info, L("identity", ("usage", "assigned"))));
-        chips.Margin = new Thickness(0, 16, 0, 0);
-        body.Children.Add(chips);
-        return body;
-    }
-
-    // ── 11 App Usage ─────────────────────────────────────────────────────
-
-    private static UIElement AppUsageBody(DashboardInsightsModel m)
-    {
-        var (most, least) = Insights.AppUsage(m.Document("app-usage")!.Value);
-        var body = new StackPanel();
-        if (most.Count == 0) return Message("No usage has been reported in the last 30 days.");
-
-        static DeepLink Usage(string app) => DeepLink.For("applications", "usage/" + app, ("days", "30"));
-
-        body.Children.Add(Eyebrow("MOST USED", top: 0));
-        var max = Math.Max(1, most[0].Hours);
-        foreach (var app in most)
-            body.Children.Add(BarRow(app.Name, app.Hours, app.Hours / max, Ui.Brush("IconBlueForeground"), Usage(app.Name),
-                value: $"{app.Hours:N0} h"));
-
-        if (least.Count > 0)
-        {
-            body.Children.Add(Eyebrow("LEAST USED, ON 10+ DEVICES"));
-            foreach (var app in least)
-                body.Children.Add(BarRow(app.Name, app.ActiveDevices, app.ActiveShare, Ui.StatusBrush(Tone.Warning), Usage(app.Name),
-                    value: $"{app.ActiveDevices:N0} of {app.InstalledDevices:N0}"));
-        }
-        if (PlatformFilter.Current != PlatformScope.All)
-        {
-            var caption = Ui.Caption("All platforms: usage is not split by platform.");
-            caption.TextWrapping = TextWrapping.Wrap;
-            caption.Margin = new Thickness(0, 6, 0, 0);
-            body.Children.Add(caption);
-        }
-        return body;
-    }
-
-    // ── 12 Network & Peripherals ─────────────────────────────────────────
-
-    private static UIElement NetworkBody(DashboardInsightsModel m)
-    {
-        var network = m.Rows("network");
-        var s = Insights.NetworkAndPeripherals(network, m.Rows("peripherals"), m.Rows("hardware"));
-        var body = new StackPanel();
-        body.Children.Add(DonutWithLegend(
-            [
-                ("Wired", s.Wired, Ui.Brush("IconTealForeground"), L("network", ("connection", "wired"))),
-                ("Wi-Fi", s.Wifi, Ui.Brush("IconBlueForeground"), L("network", ("connection", "wifi"))),
-            ], (s.Wired + s.Wifi).ToString("N0"), "connected"));
-        body.Children.Add(Chips(
-            Chip(s.Weak, "on a weak Wi-Fi signal", Tone.Warning, L("network", ("signal", "weak")))));
-
-        body.Children.Add(Eyebrow("PERIPHERALS"));
-        if (m.Has("peripherals"))
-        {
-            body.Children.Add(Ui.Columns(2, 10,
-                Figure(s.Printers, "printers", Tone.Neutral, L("peripherals", ("kind", "printers"))),
-                Figure(s.Displays, "displays", Tone.Neutral, L("peripherals", ("kind", "displays")))));
-            if (s.Rooms.Count > 0)
-            {
-                var max = Math.Max(1, s.Rooms[0].Printers);
-                foreach (var (room, printers) in s.Rooms)
-                    body.Children.Add(BarRow(room, printers, (double)printers / max, Ui.Brush("IconPinkForeground"),
-                        L("peripherals", ("kind", "printers"), ("room", room))));
-            }
-        }
-        else body.Children.Add(Pending(m, "peripherals", "Peripherals could not be loaded."));
-        return body;
-    }
-
-    private const string Unavailable = "Item list unavailable: it needs a fleet-wide read the API cannot serve yet.";
+        Severity.Good => Tone.Success,
+        Severity.Warning => Tone.Warning,
+        Severity.Bad => Tone.Error,
+        Severity.Info => Tone.Info,
+        _ => Tone.Neutral,
+    };
 
     // ── Marks ────────────────────────────────────────────────────────────
 
@@ -662,50 +264,57 @@ public static class InsightWidgets
     }
 
     /// <summary>"label  [bar]  n", the shape every bar list on these cards uses.</summary>
-    private static UIElement BarRow(string label, double count, double fraction, Brush brush, DeepLink link,
-        double labelWidth = 0, string? value = null)
+    private static UIElement BarRow(Metric item, double fraction)
     {
         var row = new Grid();
-        row.ColumnDefinitions.Add(labelWidth > 0
-            ? new ColumnDefinition { Width = new GridLength(labelWidth) }
-            : new ColumnDefinition { Width = new GridLength(1.3, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1.3, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, MinWidth = 44 });
-        var name = Ui.Text(label);
+        var name = Ui.Text(item.Label);
         name.FontSize = 13;
         name.TextTrimming = TextTrimming.CharacterEllipsis;
-        name.ToolTip = label;
-        name.Margin = new Thickness(0, 0, 8, 0);
-        row.Children.Add(name);
-        var track = Track(8, fraction, brush);
+        name.ToolTip = item.Detail is null ? item.Label : $"{item.Label} · {item.Detail}";
+        var label = PlatformIcon.Labelled(item.Platform, name, 12);
+        if (label is FrameworkElement fe) fe.Margin = new Thickness(0, 0, 8, 0);
+        row.Children.Add(label);
+        var track = Track(8, fraction, item.Severity == Severity.Neutral ? Ui.Brush("IconBlueForeground") : Ui.StatusBrush(ToneOf(item.Severity)));
         Grid.SetColumn(track, 1);
         row.Children.Add(track);
-        var n = Ui.Text(value ?? count.ToString("N0"));
+        var n = Ui.Text(item.Shown);
         n.FontSize = 13;
         n.FontWeight = FontWeights.Medium;
         n.TextAlignment = TextAlignment.Right;
         n.Margin = new Thickness(8, 0, 0, 0);
         Grid.SetColumn(n, 2);
         row.Children.Add(n);
-        return Row(row, link);
+        return item.Link is { } link ? Row(row, link) : row;
     }
 
-    /// <summary>A large linked number over its caption.</summary>
-    private static UIElement Figure(int value, string caption, Tone tone, DeepLink link)
+    /// <summary>A large number over its caption, linked when the server gave it a link.</summary>
+    private static UIElement Figure(Metric item)
     {
         var panel = new StackPanel();
-        var n = value == 0
-            ? Ui.Text(value.ToString("N0"), "StatValueStyle", Ui.Brush("TextSecondaryBrush"))
-            : tone == Tone.Neutral ? Ui.Text(value.ToString("N0")) : Ui.Status(value.ToString("N0"), tone, 24, FontWeights.SemiBold);
+        var value = item.Shown;
+        var n = item.Count == 0 || item.Severity == Severity.Neutral
+            ? Ui.Text(value, "StatValueStyle", Ui.Brush(item.Count == 0 ? "TextSecondaryBrush" : "TextPrimaryBrush"))
+            : Ui.Status(value, ToneOf(item.Severity), 24, FontWeights.SemiBold);
         n.FontSize = 24;
         n.FontWeight = FontWeights.SemiBold;
         panel.Children.Add(n);
-        var c = Ui.Caption(caption);
+        var c = Ui.Caption(item.Label);
         c.TextWrapping = TextWrapping.Wrap;
         panel.Children.Add(c);
+        if (item.Detail is { } detail)
+        {
+            var d = Ui.Caption(detail);
+            d.TextWrapping = TextWrapping.Wrap;
+            d.Opacity = 0.8;
+            panel.Children.Add(d);
+        }
+        if (item.Link is not { } link) return panel;
         var wrap = Linkable.Wrap(panel, link);
         wrap.Padding = new Thickness(6, 4, 6, 6);
-        wrap.Margin = new Thickness(-6, 0, 0, 0);
+        wrap.Margin = new Thickness(-6, 0, 0, 6);
         return wrap;
     }
 
@@ -714,35 +323,6 @@ public static class InsightWidgets
         var e = Ui.Eyebrow(text);
         e.Margin = new Thickness(0, top, 0, 6);
         return e;
-    }
-
-    /// <summary>"Label … n of N  pct" over a bar, coloured by how close to complete it is.</summary>
-    private static UIElement ComplianceRow(Insights.Compliance c)
-    {
-        var tone = c.Fraction >= 0.9 ? Tone.Success : c.Fraction >= 0.7 ? Tone.Warning : Tone.Error;
-
-        var head = new Grid();
-        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
-        var label = Ui.Text(c.Label);
-        label.FontSize = 13;
-        label.TextTrimming = TextTrimming.CharacterEllipsis;
-        head.Children.Add(label);
-        var of = Ui.Caption($"{c.On:N0} of {c.Total:N0}");
-        Grid.SetColumn(of, 1);
-        head.Children.Add(of);
-        var pct = Ui.Status($"{c.Fraction:P0}", tone, 12, FontWeights.SemiBold);
-        pct.TextAlignment = TextAlignment.Right;
-        Grid.SetColumn(pct, 2);
-        head.Children.Add(pct);
-
-        var panel = new StackPanel { Margin = new Thickness(6, 3, 6, 6) };
-        panel.Children.Add(head);
-        var track = Track(6, c.Fraction, Ui.StatusBrush(tone));
-        track.Margin = new Thickness(0, 5, 0, 0);
-        panel.Children.Add(track);
-        return panel;
     }
 
     private static Border Track(double height, double fraction, Brush fillBrush)
@@ -766,7 +346,7 @@ public static class InsightWidgets
         return track;
     }
 
-    private static UIElement DonutWithLegend(IReadOnlyList<(string Label, int Count, Brush Brush, DeepLink Link)> data, string centre, string centreLabel)
+    private static UIElement DonutWithLegend(IReadOnlyList<(string Label, int Count, Brush Brush, DeepLink? Link)> data, string centre, string centreLabel)
     {
         var total = data.Sum(d => d.Count);
         var donut = Ui.Donut(data.Select(d => ((double)d.Count, d.Brush, $"{d.Label}: {d.Count:N0}")), total,
@@ -795,20 +375,31 @@ public static class InsightWidgets
             name.TextTrimming = TextTrimming.CharacterEllipsis;
             Grid.SetColumn(name, 1);
             row.Children.Add(name);
-            var n = Number(count);
+            var n = Ui.Text(count.ToString("N0"));
+            n.FontSize = 13;
+            n.FontWeight = FontWeights.Medium;
+            n.TextAlignment = TextAlignment.Right;
             Grid.SetColumn(n, 2);
             row.Children.Add(n);
             var share = Ui.Caption(total == 0 ? "" : $"{(double)count / total:P0}");
             share.TextAlignment = TextAlignment.Right;
             Grid.SetColumn(share, 3);
             row.Children.Add(share);
-            var wrap = Linkable.Wrap(row, link);
-            wrap.Padding = new Thickness(6, 2, 6, 2);
-            wrap.Margin = new Thickness(0, 0, 0, 2);
-            legend.Children.Add(wrap);
+            if (link is { } l)
+            {
+                var wrap = Linkable.Wrap(row, l);
+                wrap.Padding = new Thickness(6, 2, 6, 2);
+                wrap.Margin = new Thickness(0, 0, 0, 2);
+                legend.Children.Add(wrap);
+            }
+            else
+            {
+                row.Margin = new Thickness(6, 2, 6, 4);
+                legend.Children.Add(row);
+            }
         }
 
-        var grid = new Grid();
+        var grid = new Grid { Margin = new Thickness(0, 0, 0, 10) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.Children.Add(donut);
@@ -820,23 +411,23 @@ public static class InsightWidgets
     private static WrapPanel Chips(params UIElement[] chips)
     {
         var wrap = Ui.Wrap(8, chips);
-        wrap.Margin = new Thickness(0, 6, 0, 0);
+        wrap.Margin = new Thickness(0, 8, 0, 0);
         return wrap;
     }
 
-    /// <summary>A small linked "n label" chip; a zero reads in the secondary colour, not the alarm one.</summary>
-    private static UIElement Chip(int value, string label, Tone tone, DeepLink link)
+    /// <summary>A small "n label" chip; a zero reads in the secondary colour, not the alarm one.</summary>
+    private static UIElement Chip(Metric item)
     {
         var panel = new StackPanel { Orientation = Orientation.Horizontal };
-        var n = value == 0
-            ? Ui.Text(value.ToString("N0"), "StatValueStyle", Ui.Brush("TextSecondaryBrush"))
-            : Ui.Status(value.ToString("N0"), tone, 13, FontWeights.SemiBold);
+        var n = item.Count == 0 || item.Severity == Severity.Neutral
+            ? Ui.Text(item.Shown, "StatValueStyle", Ui.Brush("TextSecondaryBrush"))
+            : Ui.Status(item.Shown, ToneOf(item.Severity), 13, FontWeights.SemiBold);
         n.FontWeight = FontWeights.SemiBold;
         n.FontSize = 13;
         n.Margin = new Thickness(0, 0, 6, 0);
         n.VerticalAlignment = VerticalAlignment.Center;
         panel.Children.Add(n);
-        var text = Ui.Caption(label);
+        var text = Ui.Caption(item.Label);
         text.VerticalAlignment = VerticalAlignment.Center;
         panel.Children.Add(text);
         var chip = new Border
@@ -847,46 +438,23 @@ public static class InsightWidgets
             Background = Ui.Brush("SubtleFillBrush"),
             BorderBrush = Ui.Brush("CardBorderBrush"),
             BorderThickness = new Thickness(1),
+            Margin = new Thickness(0, 0, 0, 6),
         };
-        Linkable.Attach(chip, link);
+        if (item.Link is { } link) Linkable.Attach(chip, link);
         return chip;
     }
 
-    private static TextBlock Number(int value)
-    {
-        var n = Ui.Text(value.ToString("N0"));
-        n.FontSize = 13;
-        n.FontWeight = FontWeights.Medium;
-        n.TextAlignment = TextAlignment.Right;
-        n.VerticalAlignment = VerticalAlignment.Center;
-        return n;
-    }
-
-    /// <summary>An optional read's state where its part of a card would be.</summary>
-    private static UIElement Pending(DashboardInsightsModel m, string source, string failed) =>
-        m.IsLoading(source) ? Loading(5)
-        : m.Error(source) is { } error ? Failed($"{failed} {error}", source)
-        : Message(failed);
-
-    /// <summary>The error, and a Retry that reads just this source again.</summary>
-    private static UIElement Failed(string error, string source)
+    /// <summary>The error, and a Retry that reads the insights again.</summary>
+    private static UIElement Failed(string error)
     {
         var panel = new StackPanel();
-        panel.Children.Add(Message(error));
-        var retry = Ui.IconButton("\uE72C", "Retry", (_, _) => _ = DashboardInsightsModel.Shared.RetryAsync(source));
+        var t = Ui.Caption(error);
+        t.TextWrapping = TextWrapping.Wrap;
+        panel.Children.Add(t);
+        var retry = Ui.IconButton("", "Retry", (_, _) => _ = DashboardInsightsModel.Shared.RetryAsync());
         retry.HorizontalAlignment = HorizontalAlignment.Left;
         retry.Margin = new Thickness(0, 8, 0, 0);
         panel.Children.Add(retry);
         return panel;
     }
-
-    private static UIElement Message(string text)
-    {
-        var t = Ui.Caption(text);
-        t.TextWrapping = TextWrapping.Wrap;
-        return t;
-    }
-
-    /// <summary>Where a part of a card is still loading: skeleton bar rows, not a spinner.</summary>
-    private static UIElement Loading(int rows = 3) => Skeleton.Pulse(Skeleton.Bars(rows));
 }

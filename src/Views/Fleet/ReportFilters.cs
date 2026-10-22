@@ -140,6 +140,8 @@ public static class ReportFilters
         {
             ["connection"] = Simple((r, w) => Eq(Insights.ConnectionKey(r), w is "wireless" ? "wifi" : w)),
             ["signal"] = Simple((r, w) => Eq(w, "weak") && Insights.IsWeakSignal(r)),
+            ["quality"] = Simple((r, w) => Eq(w, "poor") && Insights.IsPoorQuality(r)),
+            ["vpn"] = Has(Insights.IsOnVpn),
         },
 
         ["peripherals"] = new(StringComparer.OrdinalIgnoreCase)

@@ -130,17 +130,19 @@ The dashboard follows the layout and cards shared with the web and Mac apps:
 | 1,420 to 1,939 | three columns 1/1/2, cards 1 to 4 beside status, cards 5 to 12 four across below |
 | 1,940 and over | four columns 1/1/1/2, the cards dealt alternately into two insight columns |
 
-The twelve insight cards, in order: System Health, Security Posture, Management,
-Hardware, Install Health, Check-in Gaps, OS Currency, Software Risk, Certificates,
-Identity, App Usage, and Network & Peripherals. Each read is shared, so one
-`/security` read feeds Security Posture, Software Risk and Certificates. Reads run two
-at a time with one retry, and refresh every five minutes. The managed-items read is
-last and optional: if it fails, Install Health and Software Risk show their counts
-without the item lists.
+The twelve insight cards each answer one question: Reboot & Update Debt, Protection
+Gaps, Unmanaged Devices, Hardware at Risk, Install Health, Check-in Gaps, OS Currency,
+Software Risk, Expiring Certificates, Local Admin Exposure, Unused Software, and
+Connectivity Problems. They come from one cached call,
+`GET /api/v1/dashboard/insights?platform=all|macOS|Windows`, which the server
+computes with aggregate SQL and caches for five minutes. The app never downloads a
+bulk report for the dashboard. The call has a 45-second deadline and is repeated
+every five minutes. Cards show a skeleton until the first answer, and a card the
+server could not compute shows its error with a Retry.
 
 Every number, bar, legend row, chip and list item opens the report that owns it
 with that filter applied, and each card header opens its report unfiltered. The
-links are the web routes, so a click opens what the same link opens on the web or
+links are the ones the server sends with each item, as web routes, so a click opens what the same link opens on the web or
 the Mac. A device row opens the device list narrowed to that serial, because the
 device page shows this machine only. A filtered report names its filters next to
 its count, with a button to show the whole report.
@@ -158,7 +160,7 @@ These are the link parameters the reports read. Multiple values are comma-separa
 | `events/failures` | `hours`, `reason`, `outcome` |
 | `identity` | `admins=extra`, `join=entra\|domain\|hybrid\|workgroup`, `usage=shared\|assigned` |
 | `applications` | `apps`, `publishers`, `versions`; `applications/usage/<app>?days=30` for one app |
-| `network` | `connection=wired\|wifi`, `signal=weak` (under 25%) |
+| `network` | `connection=wired\|wifi`, `signal=weak` (under 25%), `quality=poor`, `vpn=1` |
 | `peripherals` | `kind=printers\|displays`, `room=<room>` |
 
 ## Links
