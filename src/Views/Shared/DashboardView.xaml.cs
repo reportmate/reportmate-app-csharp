@@ -31,11 +31,6 @@ public partial class DashboardView : UserControl
     private string _current = "dashboard";
     private DashboardChrome _chrome = DashboardChrome.Standard;
 
-    /// <summary>
-    /// The width of the tab bar with every report as its own tab, measured the last
-    /// time it was drawn that way; zero until then.
-    /// </summary>
-    private double _inlineTabsWidth;
 
     /// <summary>The dashboard reading its palette and styles from the application's resources.</summary>
     public DashboardView() : this(scopedResources: false) { }
@@ -75,15 +70,10 @@ public partial class DashboardView : UserControl
                 _ => "report:" + id,
             });
         HeaderGrid.SizeChanged += (_, _) => BuildTabs();
-        TabBarFrame.SizeChanged += (_, _) =>
-        {
-            if (!_reportsInline || TabBarFrame.ActualWidth <= 0) return;
-            _inlineTabsWidth = Math.Max(_inlineTabsWidth, TabBarFrame.ActualWidth);
-            BuildTabs();
-        };
-        // The arithmetic below decides before layout; this checks after it, so a
-        // header that still ran under the caption buttons folds its reports.
+        // The arithmetic of what fits happens after layout, against where the
+        // window's caption buttons actually are.
         HeaderGrid.LayoutUpdated += (_, _) => FoldIfOverflowing();
+        Loaded += (_, _) => AttachToWindow();
         BuildTabs();
         Navigate("dashboard");
     }
@@ -121,16 +111,17 @@ public partial class DashboardView : UserControl
     /// </summary>
     private void BuildTabs(bool rebuild = false)
     {
-        // On the device page the reports always sit inline, as on the web. When the
-        // header is short of room the search field folds to an icon first, then the
-        // tabs drop their labels and keep their icons; they never fold into Reports.
+        // When the header is short of room it gives way in steps, on every page: the
+        // search folds to an icon, then the tabs drop their labels and keep their
+        // icons, and only then -- never on a device page -- do the reports fold into
+        // one Reports tab.
         var device = IsDeviceTag(_current);
-        var inline = device || ReportsFitInline();
-        var searchFolded = device && _deviceFit >= 1 && !_searchOpen;
+        var inline = device || _fit < 3;
+        var searchFolded = _fit >= 1 && !_searchOpen;
         SearchHost.Visibility = _chrome.ShowsSearchField && !searchFolded ? Visibility.Visible : Visibility.Collapsed;
         SearchIcon.Visibility = _chrome.ShowsSearchField && searchFolded ? Visibility.Visible : Visibility.Collapsed;
         SearchColumn.MinWidth = SearchHost.Visibility == Visibility.Visible ? 140 : 0;
-        var compact = device && (_deviceFit >= 2 || _searchOpen);
+        var compact = _fit >= 2 || _searchOpen;
         if (!rebuild && TabBar.Children.Count > 0 && inline == _reportsInline && compact == _compactTabs) { SyncChecked(); return; }
         _reportsInline = inline;
         _compactTabs = compact;
@@ -151,25 +142,6 @@ public partial class DashboardView : UserControl
         SyncChecked();
     }
 
-    /// <summary>
-    /// Whether every report fits as its own tab in the width the header's other
-    /// controls leave: the mark, the platform toggle, the search field's minimum
-    /// and the trailing buttons. Before the inline tabs have been measured they are
-    /// drawn once to find out, which is what records their width.
-    /// </summary>
-    private bool ReportsFitInline()
-    {
-        if (_inlineTabsWidth <= 0) return true;
-        var columns = HeaderGrid.ColumnDefinitions;
-        // The search keeps its margins as well as its minimum, and the trailing
-        // column's width already carries the caption buttons' reserve.
-        var search = SearchColumn.MinWidth > 0 ? SearchColumn.MinWidth + SearchHost.Margin.Left + SearchHost.Margin.Right : 0;
-        var others = columns[0].ActualWidth + columns[1].ActualWidth + columns[4].ActualWidth + search + FitSlack;
-        return HeaderGrid.ActualWidth > 0 && _inlineTabsWidth <= HeaderGrid.ActualWidth - others;
-    }
-
-    /// <summary>Room kept spare so a tab never ends flush against the caption buttons.</summary>
-    private const double FitSlack = 16;
 
     /// <summary>
     /// Fold the reports into one tab when the drawn header is wider than the window:
@@ -179,62 +151,105 @@ public partial class DashboardView : UserControl
     /// measured before the tabs had been laid out.
     /// </summary>
     /// <summary>
-    /// How far the device page's header has given way to keep every report tab:
-    /// 0 nothing, 1 the search folded to an icon, 2 the tabs icon-only as well.
+    /// How far the header has given way to fit beside the caption buttons: 0 not at
+    /// all, 1 the search folded to an icon, 2 the tabs icon-only as well, 3 the
+    /// reports folded into one Reports tab (never on a device page).
     /// </summary>
-    private int _deviceFit;
+    private int _fit;
 
     /// <summary>The header width the last step was taken at, so a wider window can undo it.</summary>
-    private double _deviceFitWidth;
+    private double _fitWidth;
 
     /// <summary>The folded search was opened from its icon.</summary>
     private bool _searchOpen;
 
     private bool _compactTabs;
 
+    private int MaxFit => IsDeviceTag(_current) ? 2 : 3;
+
     private void FoldIfOverflowing()
     {
-        if (!IsDeviceTag(_current) && (_deviceFit > 0 || _searchOpen))
+        if (HeaderGrid.ActualWidth <= 0 || TrailingItems.ActualWidth <= 0) return;
+
+        // Past the last step a page can take -- after leaving a device page at step 3 --
+        // or well wider than where the header last gave way: start again from nothing.
+        if (_fit > MaxFit || (_fit > 0 && HeaderGrid.ActualWidth > _fitWidth + 80))
         {
-            _deviceFit = 0;
-            _searchOpen = false;
+            _fit = 0;
             BuildTabs(rebuild: true);
             return;
         }
-        // A window widened well past where the header last gave way gets its
-        // search and labels back; if they still do not fit, the steps repeat.
-        if (_deviceFit > 0 && HeaderGrid.ActualWidth > _deviceFitWidth + 80)
-        {
-            _deviceFit = 0;
-            BuildTabs(rebuild: true);
-            return;
-        }
-        if (!_reportsInline || HeaderGrid.ActualWidth <= 0 || TrailingItems.ActualWidth <= 0) return;
-        double right;
+
+        if (!Overflows()) return;
+        if (_fit >= MaxFit) return;
+        _fit++;
+        _fitWidth = HeaderGrid.ActualWidth;
+        BuildTabs(rebuild: true);
+    }
+
+    /// <summary>
+    /// Whether the header's last control runs under the window's caption buttons,
+    /// or past the header's own edge. The caption buttons are found where the window
+    /// draws them, not assumed to be a constant width: their width changes with the
+    /// display's scaling and the system's settings.
+    /// </summary>
+    private bool Overflows()
+    {
         try
         {
-            right = TrailingItems.TranslatePoint(new Point(TrailingItems.ActualWidth, 0), HeaderGrid).X
-                    + TrailingItems.Margin.Right;
+            var right = TrailingItems.TranslatePoint(new Point(TrailingItems.ActualWidth, 0), HeaderGrid).X;
+            if (right + TrailingItems.Margin.Right > HeaderGrid.ActualWidth + 0.5) return true;
+
+            if (_window is not null && CaptionButtonsLeft() is { } captions)
+            {
+                var inWindow = TrailingItems.TranslatePoint(new Point(TrailingItems.ActualWidth, 0), _window).X;
+                if (inWindow > captions - 4) return true;
+            }
         }
         catch (InvalidOperationException)
         {
-            return;
+            // Not in the window's tree yet; the next layout pass will say.
         }
-        var overflow = right - HeaderGrid.ActualWidth;
-        if (overflow <= 0.5) return;
-        if (IsDeviceTag(_current))
-        {
-            // Never fold the reports here: fold the search, then the tab labels.
-            if (_deviceFit >= 2) return;
-            _deviceFit++;
-            _deviceFitWidth = HeaderGrid.ActualWidth;
-            BuildTabs(rebuild: true);
-            return;
-        }
-        // Remember the shortfall as part of the tabs' width, so they stay folded
-        // until the window is wide enough to take them back without overflowing.
-        _inlineTabsWidth = Math.Max(_inlineTabsWidth, TabBarFrame.ActualWidth) + overflow + FitSlack;
-        BuildTabs();
+        return false;
+    }
+
+    private Window? _window;
+    private FrameworkElement? _captionButtons;
+
+    /// <summary>
+    /// Follow the window this header sits in: its caption-button area, and the
+    /// inset ModernWpf reports for it, which the trailing controls keep clear of.
+    /// </summary>
+    private void AttachToWindow()
+    {
+        var window = Window.GetWindow(this);
+        if (window is null || ReferenceEquals(window, _window)) return;
+        _window = window;
+        if (!ModernWpf.Controls.TitleBar.GetExtendViewIntoTitleBar(window)) return;
+
+        window.ApplyTemplate();
+        _captionButtons = window.Template?.FindName("PART_RightSystemOverlay", window) as FrameworkElement;
+        System.ComponentModel.DependencyPropertyDescriptor
+            .FromProperty(ModernWpf.Controls.TitleBar.SystemOverlayRightInsetProperty, typeof(Window))
+            ?.AddValueChanged(window, (_, _) => ApplyCaptionInset());
+        ApplyCaptionInset();
+    }
+
+    private void ApplyCaptionInset()
+    {
+        if (_window is null) return;
+        var inset = ModernWpf.Controls.TitleBar.GetSystemOverlayRightInset(_window);
+        if (inset > 0) CaptionButtonsWidth = inset + 4;
+    }
+
+    /// <summary>The caption buttons' left edge in the window, or null when there are none to find.</summary>
+    private double? CaptionButtonsLeft()
+    {
+        if (_window is null) return null;
+        if (_captionButtons is { ActualWidth: > 0 } overlay)
+            return overlay.TranslatePoint(new Point(0, 0), _window).X;
+        var inset = ModernWpf.Controls.TitleBar.GetSystemOverlayRightInset(_window);
+        return inset > 0 ? _window.ActualWidth - inset : null;
     }
 
     /// <summary>
