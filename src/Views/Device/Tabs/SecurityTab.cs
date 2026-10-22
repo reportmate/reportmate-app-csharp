@@ -19,7 +19,7 @@ public sealed class SecurityTab : DeviceTab
     public override Accent Accent => Accent.Red;
     public override string Description => "Security status and compliance";
 
-    private sealed record CertRow(string Name, string Issuer, string Thumbprint, string Status, Tone StatusTone, string From, string Expires, string Store, string Key, bool SelfSigned, bool OsRoot, bool Expired, bool Expiring);
+    private sealed record CertRow(string Name, string Issuer, string Thumbprint, string Status, Tone StatusTone, string From, string Expires, string Store, string Key, bool SelfSigned, CertificateClass Class, string ClassLabel, Tone ClassTone, bool Expired, bool Expiring);
     private sealed record CveRow(string Cve, string Url, string OsVersion, string PatchedIn, string Status, Tone StatusTone, string Installed, string Source, Tone SourceTone, bool Unpatched, bool Exploited);
     private sealed record DetectionRow(string Threat, string Severity, Tone SeverityTone, string Category, string Status, Tone StatusTone, string Source, string Detected, string ThreatId, string Path, string Process, string User, string Action, string Details, string EventId)
     {
@@ -29,7 +29,7 @@ public sealed class SecurityTab : DeviceTab
     private string _certFilter = "all";
     private string _storeFilter = "all";
     private bool _selfSignedOnly;
-    private bool _showOsRoots;
+    private bool _showSystemManaged;
     private string _certSearch = "";
     private string _cveFilter = "all";
 
@@ -416,23 +416,29 @@ public sealed class SecurityTab : DeviceTab
 
     private UIElement CertificatesCard(SecurityData sec, Action rerender)
     {
+        // Status is measured against now: the stored status was frozen when the
+        // certificate was collected. The client model carries no class yet, so the
+        // collector's own OS-root flag is the only signal for a trust-store copy and
+        // everything else reads as actionable, as the API treats unstamped rows.
+        var now = DateTime.UtcNow;
         var certs = (sec.Certificates ?? []).Select(c =>
         {
-            var status = DeviceSnapshot.FirstNonEmpty(c.Status) ?? (c.IsExpired ? "Expired" : c.IsExpiringSoon ? "ExpiringSoon" : "Valid");
-            var expired = status == "Expired" || c.IsExpired;
-            var expiring = status == "ExpiringSoon" || c.IsExpiringSoon;
+            var (state, days) = CertificateView.Live(c.NotAfter, now, c.Status, c.IsExpired, c.IsExpiringSoon, c.DaysUntilExpiry);
+            var expired = state == CertificateStatus.Expired;
+            var expiring = state == CertificateStatus.ExpiringSoon;
+            var cls = CertificateView.Classify(null, c.IsOsTrustedRoot);
             var store = c.StoreLocation is "LocalMachine" or "System" ? "System" : "User";
-            var name = DeviceSnapshot.FirstNonEmpty(c.CommonName) ?? (c.Subject ?? "").Split(',')[0].Replace("CN=", "", StringComparison.OrdinalIgnoreCase).Trim();
-            return new CertRow(name.Length > 0 ? name : "—", c.Issuer ?? "", c.Thumbprint ?? "",
-                expired ? "Expired" : expiring ? (c.DaysUntilExpiry > 0 ? $"{c.DaysUntilExpiry}d" : "Expiring") : "Valid",
+            var name = CertificateView.DisplayName(null, c.CommonName, c.Subject);
+            return new CertRow(name.Length > 0 ? name : "—", CertificateView.IssuerName(null, c.Issuer), c.Thumbprint ?? "",
+                expired ? "Expired" : expiring ? (days > 0 ? $"{days}d" : "Expiring") : "Valid",
                 expired ? Tone.Error : expiring ? Tone.Warning : Tone.Success,
                 c.NotBefore is null ? "—" : Format.ShortDate(c.NotBefore), c.NotAfter is null ? "—" : Format.ShortDate(c.NotAfter),
-                store, string.IsNullOrWhiteSpace(c.StoreName) ? store : $"{store} · {c.StoreName}", c.IsSelfSigned, c.IsOsTrustedRoot, expired, expiring);
+                store, string.IsNullOrWhiteSpace(c.StoreName) ? store : $"{store} · {c.StoreName}", c.IsSelfSigned,
+                cls, CertificateView.Label(cls), cls == CertificateClass.Actionable ? Tone.Info : Tone.Neutral, expired, expiring);
         }).ToList();
 
-        var summary = sec.CertificateSummary;
-        var osRootExpired = summary?.OsRootExpiredCount > 0 ? summary.OsRootExpiredCount : certs.Count(c => c.OsRoot && c.Expired);
-        var visible = _showOsRoots ? certs : certs.Where(c => !(c.OsRoot && c.Expired)).ToList();
+        var hiddenCount = certs.Count(c => c.Class != CertificateClass.Actionable);
+        var visible = _showSystemManaged ? certs : certs.Where(c => c.Class == CertificateClass.Actionable).ToList();
         var expiredCount = visible.Count(c => c.Expired);
         var expiringCount = visible.Count(c => c.Expiring);
         var validCount = visible.Count(c => !c.Expired && !c.Expiring);
@@ -448,7 +454,7 @@ public sealed class SecurityTab : DeviceTab
             if (_selfSignedOnly && !c.SelfSigned) return false;
             var q = _certSearch.Trim();
             return q.Length == 0 || c.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || c.Issuer.Contains(q, StringComparison.OrdinalIgnoreCase) || c.Thumbprint.Contains(q, StringComparison.OrdinalIgnoreCase);
-        }).OrderBy(c => c.Store).ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        }).OrderBy(c => c.Class).ThenBy(c => c.Store).ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToList();
 
         var controls = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         void Toggle(string label, bool active, Tone tone, Action onClick)
@@ -466,27 +472,34 @@ public sealed class SecurityTab : DeviceTab
         Toggle($"Expiring Soon ({expiringCount})", _certFilter == "expiringsoon", Tone.Warning, () => _certFilter = _certFilter == "expiringsoon" ? "all" : "expiringsoon");
         Toggle($"Expired ({expiredCount})", _certFilter == "expired", Tone.Error, () => _certFilter = _certFilter == "expired" ? "all" : "expired");
         Toggle($"Self-signed ({selfSignedCount})", _selfSignedOnly, Tone.Info, () => _selfSignedOnly = !_selfSignedOnly);
-        if (osRootExpired > 0)
-            Toggle($"{(_showOsRoots ? "Hide" : "Show")} expired OS roots ({osRootExpired})", _showOsRoots, Tone.Neutral, () => _showOsRoots = !_showOsRoots);
-        if (_certFilter != "all" || _storeFilter != "all" || _selfSignedOnly || _showOsRoots || _certSearch.Trim().Length > 0)
+        if (hiddenCount > 0)
+            Toggle($"{CertificateView.ShowSystemManagedLabel} ({hiddenCount})", _showSystemManaged, Tone.Neutral, () => _showSystemManaged = !_showSystemManaged);
+        if (_certFilter != "all" || _storeFilter != "all" || _selfSignedOnly || _showSystemManaged || _certSearch.Trim().Length > 0)
         {
             var clear = new Button { Content = "Clear Filters", Padding = new Thickness(8, 2, 8, 2), FontSize = 11.5, Margin = new Thickness(0, 0, 6, 0) };
-            clear.Click += (_, _) => { _certFilter = "all"; _storeFilter = "all"; _selfSignedOnly = false; _showOsRoots = false; _certSearch = ""; rerender(); };
+            clear.Click += (_, _) => { _certFilter = "all"; _storeFilter = "all"; _selfSignedOnly = false; _showSystemManaged = false; _certSearch = ""; rerender(); };
             controls.Children.Add(clear);
         }
         controls.Children.Add(new SearchBox("Search certificates...", q => { _certSearch = q; rerender(); }) { Text = _certSearch });
 
-        var subtitle = $"{visible.Count} certificates" + (!_showOsRoots && osRootExpired > 0 ? $" ({osRootExpired} expired OS roots hidden)" : "");
+        var subtitle = $"{visible.Count} certificates" + (!_showSystemManaged && hiddenCount > 0 ? $" ({hiddenCount} system-managed hidden)" : "");
         UIElement body;
         if (certs.Count == 0) body = Ui.EmptyState("No certificates collected. Certificate data will appear after the next collection.", "");
         else if (filtered.Count == 0) body = Ui.EmptyState("No certificates match the selected filters", "");
-        else body = Table.Build(filtered,
-            Col.Text("Name / Issuer", "Name", star: true, sub: "Issuer"),
-            Col.Text("Thumbprint", "Thumbprint", 190, mono: true),
-            Col.Pill("Status", "Status", "StatusTone", 110),
-            Col.Text("Valid From", "From", 120),
-            Col.Text("Expires", "Expires", 120),
-            Col.Text("Store", "Key", 170));
+        else
+        {
+            var cols = new List<Col>
+            {
+                Col.Text("Name / Issuer", "Name", star: true, sub: "Issuer"),
+                Col.Text("Thumbprint", "Thumbprint", 190, mono: true),
+                Col.Pill("Status", "Status", "StatusTone", 110),
+                Col.Text("Valid From", "From", 120),
+                Col.Text("Expires", "Expires", 120),
+                Col.Text("Store", "Key", 170),
+            };
+            if (_showSystemManaged) cols.Insert(1, Col.Pill("Class", "ClassLabel", "ClassTone", 130));
+            body = Table.Build(filtered, [.. cols]);
+        }
         return Ui.TableCard("Certificates", subtitle, body, controls);
     }
 
