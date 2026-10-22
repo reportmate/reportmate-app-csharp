@@ -18,52 +18,93 @@ public static class Skeleton
     // ── Primitives ───────────────────────────────────────────────────────
 
     /// <summary>A rounded block. Without a width it stretches to its container.</summary>
-    public static Border Block(double? width, double height, double radius = 6) => new()
+    public static Border Block(double? width, double height, double radius = 6) => Animated(new Border
     {
         Width = width ?? double.NaN,
         Height = height,
         CornerRadius = new CornerRadius(radius),
-        Background = Ui.Brush("SkeletonBrush"),
+        Background = Fill(),
         HorizontalAlignment = width is null ? HorizontalAlignment.Stretch : HorizontalAlignment.Left,
         VerticalAlignment = VerticalAlignment.Center,
-    };
+    });
 
     /// <summary>A line of text that has not arrived yet.</summary>
     public static Border Line(double? width, double height = 10) => Block(width, height, height / 2);
 
-    public static Ellipse Circle(double size) => new()
+    public static Ellipse Circle(double size) => Animated(new Ellipse
     {
-        Width = size, Height = size, Fill = Ui.Brush("SkeletonBrush"),
+        Width = size, Height = size, Fill = Fill(),
         VerticalAlignment = VerticalAlignment.Center,
-    };
+    });
 
     /// <summary>A donut's ring, the shape the insight cards' charts take.</summary>
-    public static Ellipse Ring(double size, double thickness) => new()
+    public static Ellipse Ring(double size, double thickness) => Animated(new Ellipse
     {
-        Width = size, Height = size, Stroke = Ui.Brush("SkeletonBrush"), StrokeThickness = thickness,
+        Width = size, Height = size, Stroke = Fill(), StrokeThickness = thickness,
         VerticalAlignment = VerticalAlignment.Center,
-    };
+    });
 
-    /// <summary>
-    /// Pulse a skeleton: one opacity animation on its root rather than one per block,
-    /// so the whole page breathes together, as the web's does.
-    /// </summary>
-    public static T Pulse<T>(T root) where T : UIElement
+    // ── Movement ─────────────────────────────────────────────────────────
+    //
+    // Every block paints with one shared brush, and the brush's opacity is what
+    // pulses: 1.0 to 0.5 and back over two seconds, the web's animate-pulse. One
+    // animation on one brush keeps every block on the page in step, and it does not
+    // depend on any element's Loaded event or template: an element built, dropped
+    // and rebuilt still shows the brush's current opacity. The animation runs only
+    // while at least one block is on screen, since a running WPF animation keeps the
+    // render loop ticking, and not at all when Windows' "Animation effects" is off.
+
+    private static readonly Dictionary<Color, SolidColorBrush> SharedBrushes = new();
+    private static int _onScreen;
+
+    /// <summary>The shared, pulsing fill for the current theme's skeleton colour.</summary>
+    private static SolidColorBrush Fill()
     {
-        var pulse = new DoubleAnimation(1, 0.45, TimeSpan.FromMilliseconds(1000))
+        var color = Ui.Brush("SkeletonBrush") is SolidColorBrush { } b ? b.Color : Color.FromRgb(0xE5, 0xE7, 0xEB);
+        if (!SharedBrushes.TryGetValue(color, out var brush))
+        {
+            brush = new SolidColorBrush(color);
+            SharedBrushes[color] = brush;
+            if (_onScreen > 0) Start(brush);
+        }
+        return brush;
+    }
+
+    /// <summary>Whether Windows lets apps animate: Settings › Accessibility › Visual effects › Animation effects.</summary>
+    public static bool AnimationsEnabled => SystemParameters.ClientAreaAnimation;
+
+    private static T Animated<T>(T element) where T : FrameworkElement
+    {
+        element.Loaded += (_, _) =>
+        {
+            if (++_onScreen == 1) foreach (var b in SharedBrushes.Values) Start(b);
+        };
+        element.Unloaded += (_, _) =>
+        {
+            if (_onScreen > 0 && --_onScreen == 0) foreach (var b in SharedBrushes.Values) Stop(b);
+        };
+        return element;
+    }
+
+    private static void Start(SolidColorBrush brush)
+    {
+        if (!AnimationsEnabled) { brush.Opacity = 0.75; return; }
+        brush.BeginAnimation(Brush.OpacityProperty, new DoubleAnimation(1.0, 0.5, TimeSpan.FromSeconds(1))
         {
             AutoReverse = true,
             RepeatBehavior = RepeatBehavior.Forever,
             EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
-        };
-        // Runs only while on screen: an animation left running on a skeleton the
-        // data has replaced would keep ticking, and the element alive, for nothing.
-        if (root is FrameworkElement fe)
-        {
-            fe.Loaded += (_, _) => fe.BeginAnimation(UIElement.OpacityProperty, pulse);
-            fe.Unloaded += (_, _) => fe.BeginAnimation(UIElement.OpacityProperty, null);
-            if (fe.IsLoaded) fe.BeginAnimation(UIElement.OpacityProperty, pulse);
-        }
+        });
+    }
+
+    private static void Stop(SolidColorBrush brush) => brush.BeginAnimation(Brush.OpacityProperty, null);
+
+    /// <summary>
+    /// Mark a skeleton for assistive technology. The movement comes from the shared
+    /// brush its blocks paint with, so nothing is animated here.
+    /// </summary>
+    public static T Pulse<T>(T root) where T : UIElement
+    {
         System.Windows.Automation.AutomationProperties.SetName(root, "Loading");
         return root;
     }

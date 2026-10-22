@@ -110,11 +110,12 @@ public sealed class DashboardInsightsModel
     }
 
     /// <summary>
-    /// Forty-five seconds a report. The managed items are two dozen pages that take
-    /// half a minute between them on a good day, so they get longer.
+    /// Forty-five seconds a read, the paged managed items included: the whole
+    /// paging run shares that one deadline and stops requesting pages when it
+    /// passes. The three minutes it had before left two cards in skeleton for most
+    /// of that, and kept the API paging a 130,000-row report nobody was waiting for.
     /// </summary>
-    private static TimeSpan Timeout(string source) =>
-        source == "installs" ? TimeSpan.FromMinutes(3) : ReportQueue.DefaultTimeout;
+    private static TimeSpan Timeout(string source) => ReportQueue.DefaultTimeout;
 
     /// <summary>Read one source again, for a card's Retry button.</summary>
     public async Task RetryAsync(string source)
