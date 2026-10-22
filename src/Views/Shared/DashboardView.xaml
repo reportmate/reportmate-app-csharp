@@ -64,13 +64,21 @@
                 <Grid x:Name="SearchHost" Grid.Column="2" MaxWidth="420" HorizontalAlignment="Center"
                       VerticalAlignment="Center" Margin="12,0"
                       shell:WindowChrome.IsHitTestVisibleInChrome="True">
-                    <ui:AutoSuggestBox x:Name="SearchBox"
+                    <ui:AutoSuggestBox x:Name="SearchBox" LostKeyboardFocus="OnSearchLostFocus"
                                        PlaceholderText="Search by name, serial, asset or hostname"
                                        QuerySubmitted="OnSearchSubmitted"
                                        TextChanged="OnSearchTextChanged"
                                        SuggestionChosen="OnSearchSuggestionChosen"
                                        ItemTemplate="{StaticResource DeviceSuggestionTemplate}" />
                 </Grid>
+
+                <!-- The device page's search, folded to an icon when its header is short of room. -->
+                <Button x:Name="SearchIcon" Grid.Column="2" Visibility="Collapsed" HorizontalAlignment="Right"
+                        VerticalAlignment="Center" Margin="8,0" Padding="8,5" ToolTip="Search devices"
+                        AutomationProperties.Name="Search devices" Click="OnSearchIconClick"
+                        shell:WindowChrome.IsHitTestVisibleInChrome="True">
+                    <ui:FontIcon Glyph="&#xE721;" FontSize="14" />
+                </Button>
 
                 <Border x:Name="TabBarFrame" Grid.Column="3" CornerRadius="9" VerticalAlignment="Center"
                         shell:WindowChrome.IsHitTestVisibleInChrome="True"

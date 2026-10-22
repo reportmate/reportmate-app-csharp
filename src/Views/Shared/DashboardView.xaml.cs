@@ -121,14 +121,19 @@ public partial class DashboardView : UserControl
     /// </summary>
     private void BuildTabs(bool rebuild = false)
     {
-        // On the device page the reports always sit inline, as on the web: if the
-        // header is short of room the search field gives way instead.
-        var inline = IsDeviceTag(_current) || ReportsFitInline();
-        SearchHost.Visibility = _chrome.ShowsSearchField && !(IsDeviceTag(_current) && _searchYielded)
-            ? Visibility.Visible : Visibility.Collapsed;
+        // On the device page the reports always sit inline, as on the web. When the
+        // header is short of room the search field folds to an icon first, then the
+        // tabs drop their labels and keep their icons; they never fold into Reports.
+        var device = IsDeviceTag(_current);
+        var inline = device || ReportsFitInline();
+        var searchFolded = device && _deviceFit >= 1 && !_searchOpen;
+        SearchHost.Visibility = _chrome.ShowsSearchField && !searchFolded ? Visibility.Visible : Visibility.Collapsed;
+        SearchIcon.Visibility = _chrome.ShowsSearchField && searchFolded ? Visibility.Visible : Visibility.Collapsed;
         SearchColumn.MinWidth = SearchHost.Visibility == Visibility.Visible ? 140 : 0;
-        if (!rebuild && TabBar.Children.Count > 0 && inline == _reportsInline) { SyncChecked(); return; }
+        var compact = device && (_deviceFit >= 2 || _searchOpen);
+        if (!rebuild && TabBar.Children.Count > 0 && inline == _reportsInline && compact == _compactTabs) { SyncChecked(); return; }
         _reportsInline = inline;
+        _compactTabs = compact;
 
         TabBar.Children.Clear();
         AddTab("dashboard", "Dashboard", "");
@@ -173,15 +178,36 @@ public partial class DashboardView : UserControl
     /// the minimise, maximise and close buttons, because the fit was judged on widths
     /// measured before the tabs had been laid out.
     /// </summary>
-    /// <summary>The device page gave the search field's room to its report tabs.</summary>
-    private bool _searchYielded;
+    /// <summary>
+    /// How far the device page's header has given way to keep every report tab:
+    /// 0 nothing, 1 the search folded to an icon, 2 the tabs icon-only as well.
+    /// </summary>
+    private int _deviceFit;
+
+    /// <summary>The header width the last step was taken at, so a wider window can undo it.</summary>
+    private double _deviceFitWidth;
+
+    /// <summary>The folded search was opened from its icon.</summary>
+    private bool _searchOpen;
+
+    private bool _compactTabs;
 
     private void FoldIfOverflowing()
     {
-        if (!IsDeviceTag(_current) && _searchYielded)
+        if (!IsDeviceTag(_current) && (_deviceFit > 0 || _searchOpen))
         {
-            _searchYielded = false;
-            BuildTabs();
+            _deviceFit = 0;
+            _searchOpen = false;
+            BuildTabs(rebuild: true);
+            return;
+        }
+        // A window widened well past where the header last gave way gets its
+        // search and labels back; if they still do not fit, the steps repeat.
+        if (_deviceFit > 0 && HeaderGrid.ActualWidth > _deviceFitWidth + 80)
+        {
+            _deviceFit = 0;
+            BuildTabs(rebuild: true);
+            return;
         }
         if (!_reportsInline || HeaderGrid.ActualWidth <= 0 || TrailingItems.ActualWidth <= 0) return;
         double right;
@@ -198,10 +224,11 @@ public partial class DashboardView : UserControl
         if (overflow <= 0.5) return;
         if (IsDeviceTag(_current))
         {
-            // Never fold the reports here; take the search field out instead.
-            if (_searchYielded) return;
-            _searchYielded = true;
-            BuildTabs();
+            // Never fold the reports here: fold the search, then the tab labels.
+            if (_deviceFit >= 2) return;
+            _deviceFit++;
+            _deviceFitWidth = HeaderGrid.ActualWidth;
+            BuildTabs(rebuild: true);
             return;
         }
         // Remember the shortfall as part of the tabs' width, so they stay folded
@@ -244,7 +271,11 @@ public partial class DashboardView : UserControl
                 Margin = new Thickness(0, 0, 6, 0),
                 VerticalAlignment = VerticalAlignment.Center,
             });
-        content.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+        // Icon-only when the device page's header is short of room; the label moves
+        // to the tooltip and the accessible name.
+        var iconOnly = _compactTabs && !string.IsNullOrEmpty(glyph);
+        if (iconOnly && content.Children.Count > 0 && content.Children[0] is FrameworkElement icon) icon.Margin = new Thickness(0);
+        else content.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
 
         var tab = new RadioButton
         {
@@ -252,7 +283,9 @@ public partial class DashboardView : UserControl
             GroupName = "MainTabs",
             Style = (Style)FindResource("NavigationTabStyle"),
             Content = content,
+            ToolTip = iconOnly ? label : null,
         };
+        System.Windows.Automation.AutomationProperties.SetName(tab, label);
         System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(tab, true);
         tab.Checked += OnTabChecked;
         TabBar.Children.Add(tab);
@@ -501,6 +534,23 @@ public partial class DashboardView : UserControl
 
         _pages[tag] = page;
         return page;
+    }
+
+    /// <summary>Open the folded search: the tabs go icon-only to make room, and the box takes focus.</summary>
+    private void OnSearchIconClick(object sender, RoutedEventArgs e)
+    {
+        _searchOpen = true;
+        BuildTabs(rebuild: true);
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, () => SearchBox.Focus());
+    }
+
+    /// <summary>An opened search folds back to its icon once it is left empty.</summary>
+    private void OnSearchLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (!_searchOpen || !string.IsNullOrWhiteSpace(SearchBox.Text)) return;
+        if (SearchBox.IsKeyboardFocusWithin) return;
+        _searchOpen = false;
+        BuildTabs(rebuild: true);
     }
 
     // ── Platform scope ──────────────────────────────────────────────────
