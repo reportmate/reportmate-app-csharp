@@ -7,8 +7,10 @@ namespace ReportMate.App.Services;
 ///   1. Intune CSP / Group Policy (HKLM\SOFTWARE\Policies\ReportMate)
 ///   2. User-configured settings (HKLM\SOFTWARE\ReportMate\Settings)
 ///   3. The client's own configuration (HKLM\SOFTWARE\ReportMate)
-///   4. Defaults from an app that embeds the dashboard (<see cref="HostDefaults"/>)
-///   5. Default values
+///   4. The environment (REPORTMATE_URL, REPORTMATE_OIDC_AUDIENCE, REPORTMATE_API_KEY,
+///      REPORTMATE_PASSPHRASE), between this app's settings and policy
+///   5. Defaults from an app that embeds the dashboard (<see cref="HostDefaults"/>)
+///   6. Default values
 /// </summary>
 public sealed class ConfigManager
 {
@@ -54,21 +56,29 @@ public sealed class ConfigManager
 
         // Layer 0: what an embedding app supplies, beneath everything else.
         HostDefaults?.Invoke(config);
+        if (!string.IsNullOrWhiteSpace(config.ApiUrl)) config.ApiUrlSource = ApiUrlSource.Host;
 
         // Layer 1: the client's own configuration at the root key. This is what the
         // runner reads and what provisioning actually writes, so a device configured
         // in the normal way has its settings here and nowhere else. Reading only the
         // Settings subkey below made a fully configured endpoint report that it had
         // no API at all.
-        LoadFromRegistry(config, ReportMateConstants.StandardRegistryPath);
+        LoadFromRegistry(config, ReportMateConstants.StandardRegistryPath, ApiUrlSource.Client);
 
-        // Layer 2: settings edited in this app, which override the client's.
-        LoadFromRegistry(config, ReportMateConstants.SettingsRegistryPath);
+        // Layer 2: settings edited in this app, which override the client's. Saving
+        // Settings writes the address back even when nobody changed it, so an address
+        // there that matches the runner's is still the runner's.
+        LoadFromRegistry(config, ReportMateConstants.SettingsRegistryPath, ApiUrlSource.Settings);
 
-        // Layer 3: policy, which overrides everything.
-        LoadFromRegistry(config, ReportMateConstants.PolicyRegistryPath);
+        // Layer 3: the environment of whoever launched the app.
+        LoadFromEnvironment(config);
 
+        // Layer 4: policy, which overrides everything.
+        LoadFromRegistry(config, ReportMateConstants.PolicyRegistryPath, ApiUrlSource.Policy);
+
+        var changed = Config.ApiUrl != config.ApiUrl || Config.OidcAudience != config.OidcAudience;
         Config = config;
+        if (changed) EntraSession.Shared.Reset();
     }
 
     /// <summary>Save user-editable settings to HKLM\SOFTWARE\ReportMate\Settings.</summary>
@@ -110,14 +120,41 @@ public sealed class ConfigManager
         }
     }
 
-    private static void LoadFromRegistry(ReportMateConfig config, string keyPath)
+    /// <summary>
+    /// The same variables the Mac app and reportmateutil read, so one environment
+    /// configures all three. REPORTMATE_API_KEY is a read key here, as it is there.
+    /// </summary>
+    private static void LoadFromEnvironment(ReportMateConfig config)
+    {
+        static string? Env(string name) =>
+            Environment.GetEnvironmentVariable(name) is { } v && !string.IsNullOrWhiteSpace(v) ? v.Trim() : null;
+
+        if (Env("REPORTMATE_URL") is { } url && !SameUrl(url, config.ApiUrl))
+        {
+            config.ApiUrl = url;
+            config.ApiUrlSource = ApiUrlSource.Environment;
+        }
+        config.OidcAudience = Env("REPORTMATE_OIDC_AUDIENCE") ?? config.OidcAudience;
+        config.ReadApiKey = Env("REPORTMATE_API_KEY") ?? config.ReadApiKey;
+        config.Passphrase = Env("REPORTMATE_PASSPHRASE") ?? config.Passphrase;
+    }
+
+    private static bool SameUrl(string? a, string? b) =>
+        string.Equals((a ?? "").Trim().TrimEnd('/'), (b ?? "").Trim().TrimEnd('/'), StringComparison.OrdinalIgnoreCase);
+
+    private static void LoadFromRegistry(ReportMateConfig config, string keyPath, ApiUrlSource source)
     {
         try
         {
             using var key = Registry.LocalMachine.OpenSubKey(keyPath, false);
             if (key is null) return;
 
-            config.ApiUrl = ReadString(key, "ApiUrl") ?? config.ApiUrl;
+            if (ReadString(key, "ApiUrl") is { Length: > 0 } url && !SameUrl(url, config.ApiUrl))
+            {
+                config.ApiUrl = url;
+                config.ApiUrlSource = source;
+            }
+            config.OidcAudience = ReadString(key, "OidcAudience") ?? config.OidcAudience;
             config.ApiKey = ReadString(key, "ApiKey") ?? config.ApiKey;
             config.Passphrase = ReadString(key, "Passphrase") ?? config.Passphrase;
             config.ReadApiKey = ReadString(key, "ReadApiKey") ?? config.ReadApiKey;

@@ -82,6 +82,10 @@
                             <TextBlock Text="Managed by Policy" Style="{StaticResource CaptionTextStyle}" />
                         </StackPanel>
 
+                        <TextBlock Text="Sign-in" Style="{StaticResource FieldLabel}" />
+                        <TextBlock Text="{Binding SignInSummary, Mode=OneWay}" Style="{StaticResource CaptionTextStyle}"
+                                   TextWrapping="Wrap" />
+
                         <!--
                             The passphrase, not the API key. The runner's key is an
                             ingest credential: it can report this device's data in but

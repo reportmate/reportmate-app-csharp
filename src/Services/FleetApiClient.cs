@@ -139,28 +139,51 @@ public sealed class FleetApiClient
         if (string.IsNullOrWhiteSpace(config.ApiUrl))
             return new FleetResult<T>(FleetStatus.NotConfigured, null, FleetSetupHints.MissingSetting(hasApiUrl: false, hostSignIn: false));
 
+        var url = config.ApiUrl.TrimEnd('/') + path;
         var bearer = BearerTokenProvider is { } provider ? await provider(ct) : null;
         if (!string.IsNullOrWhiteSpace(bearer))
-            return await SendAsync<T>(config.ApiUrl.TrimEnd('/') + path,
-                request => request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer), ct);
+            return await SendAsync<T>(url, request => request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer), ct);
 
+        // Entra sign-in first: a token minted from the operator's own az login and
+        // kept in memory, so no secret has to be stored on the device. When it is not
+        // available here, or the API refuses it, the stored read credential is next.
+        //
         // The runner's ApiKey is a per-client INGEST credential and the API's scope gate
         // refuses it for every read. Sending it anyway would turn a device that has only
         // that key into a 403 on every page, which reads as a broken app rather than as
         // the missing credential it is -- so it is deliberately never used here.
-        var readCredential = FirstNonEmpty(config.ReadApiKey, config.Passphrase);
-        if (readCredential is null)
-            return new FleetResult<T>(FleetStatus.NotConfigured, null,
-                FleetSetupHints.MissingSetting(hasApiUrl: true, hostSignIn: BearerTokenProvider != null));
+        var attempts = new List<(ReadCredential Kind, Action<HttpRequestMessage> Authorize)>();
+        var entra = await EntraSession.Shared.TokenAsync(config.OidcAudience, config.ApiUrlSource, config.ApiUrl, ct);
+        if (entra is not null)
+            attempts.Add((ReadCredential.Entra, r => r.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", entra)));
+        if (!string.IsNullOrWhiteSpace(config.ReadApiKey))
+            attempts.Add((ReadCredential.ApiKey, r => r.Headers.TryAddWithoutValidation("X-API-Key", config.ReadApiKey)));
+        if (!string.IsNullOrWhiteSpace(config.Passphrase))
+            attempts.Add((ReadCredential.Passphrase, r => r.Headers.TryAddWithoutValidation("X-Client-Passphrase", config.Passphrase)));
 
-        return await SendAsync<T>(config.ApiUrl.TrimEnd('/') + path, request =>
+        if (attempts.Count == 0)
         {
-            if (!string.IsNullOrWhiteSpace(config.ReadApiKey))
-                request.Headers.TryAddWithoutValidation("X-API-Key", config.ReadApiKey);
-            else
-                request.Headers.TryAddWithoutValidation("X-Client-Passphrase", config.Passphrase);
-        }, ct);
+            var audience = await EntraSession.Shared.AudienceAsync(config.OidcAudience, config.ApiUrlSource, config.ApiUrl, ct);
+            return new FleetResult<T>(FleetStatus.NotConfigured, null,
+                FleetSetupHints.MissingSetting(hasApiUrl: true, hostSignIn: BearerTokenProvider != null, entraAudience: audience));
+        }
+
+        FleetResult<T>? result = null;
+        var last = attempts[0].Kind;
+        foreach (var (kind, authorize) in attempts)
+        {
+            last = kind;
+            result = await SendAsync<T>(url, authorize, ct);
+            if (result.Status is not (FleetStatus.Unauthorized or FleetStatus.Forbidden)) break;
+            // A refused token may simply have expired early; the next read mints afresh.
+            if (kind == ReadCredential.Entra) EntraSession.Shared.Invalidate();
+        }
+        if (last == ReadCredential.Entra && result!.Status == FleetStatus.Forbidden)
+            return result with { Detail = "You are signed in with Entra, but your account has no role that can read the fleet on this API." };
+        return result!;
     }
+
+    private enum ReadCredential { Entra, ApiKey, Passphrase }
 
     private static async Task<FleetResult<T>> SendAsync<T>(string url, Action<HttpRequestMessage> authorize, CancellationToken ct) where T : class
     {
