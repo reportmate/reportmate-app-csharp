@@ -25,6 +25,17 @@ public sealed class ApplicationsReportPage : FleetPage
     private ApplicationsReport.Options? _options;
     private string _chipSearch = "";
 
+    /// <summary>
+    /// Apps in the Usage report switched off by their toggle: out of the table and the
+    /// widgets, still in the selection. The web keeps this on the page, not in its
+    /// link, and starts every new report with all of them on, so this does too.
+    /// </summary>
+    private readonly HashSet<string> _switchedOff = new(StringComparer.Ordinal);
+    private string _toggleSearch = "";
+    private bool _togglesOpen;
+    private bool _widgetsOpen = true;
+    private ApplicationsReport.UsageMetric _metric = ApplicationsReport.UsageMetric.Launches;
+
     /// <summary>The chip cloud draws this many names before asking for a narrower search.</summary>
     private const int ChipLimit = 150;
 
@@ -133,6 +144,8 @@ public sealed class ApplicationsReportPage : FleetPage
     private void Apply(State next)
     {
         _state = next;
+        _switchedOff.Clear();
+        _toggleSearch = "";
         _ = ReloadAsync(force: true);
     }
 
@@ -410,30 +423,12 @@ public sealed class ApplicationsReportPage : FleetPage
             ? ApplicationsReport.VersionAnalysis(distribution is { Count: > 0 } ? distribution : report.VersionDistribution, [])
             : new Dictionary<string, Dictionary<string, int>>();
 
-        var apps = ApplicationsReport.ByActiveTime(report.Apps).Select(a => new UsageRow
-        {
-            App = a,
-            VersionsLabel = ApplicationsReport.VersionsSummary(analysis, a.Name),
-        }).ToList();
-
-        var table = new FilteredTable<UsageRow>("Applications Usage", "{0} of {1} applications", apps, (r, q) => r.Matches(q),
-                [
-                    Col.Text("Application", "Name", star: true),
-                    Col.Text("Versions", "VersionsLabel", 170, wrap: true),
-                    Col.Text("Active time", "Active", 120, sub: "ActiveSub", sortBy: "ActiveValue"),
-                    Col.Text("Process time", "Process", 120, sub: "ProcessSub", sortBy: "ProcessValue"),
-                    Col.Text("Launches", "Launches", 90, sortBy: "LaunchValue"),
-                    Col.Text("Active devices", "Devices", 120, sub: "DevicesSub", sortBy: "DeviceValue"),
-                    Col.Text("Active users", "Users", 110, sortBy: "UserValue"),
-                    Col.Text("Last used", "LastUsed", 120, sortBy: "LastUsedAt"),
-                    Col.Text("Status", "Status", 100),
-                ], "Search applications...", "No usage was reported for this selection. Try a longer period or fewer filters.")
-            .WithQuery(state.Query)
-            .WithRowLink(r => state.UsageDrillLink(r.Name))
-            .WithCsv(ApplicationsReport.CsvFileName(state, DateTime.Now), ApplicationsReport.UsageCsvHeaders,
-                r => ApplicationsReport.UsageCsvRow(r.App))
-            .Build();
-        page.Children.Add(Spaced(table, 14));
+        // Switching an app or the widgets' metric redraws this part alone; the report
+        // itself does not change, so nothing is fetched again.
+        var host = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch };
+        void Draw() => host.Content = UsageBody(state, report, analysis, Draw);
+        Draw();
+        page.Children.Add(host);
 
         if (report.Devices.Count > 0)
         {
@@ -457,6 +452,150 @@ public sealed class ApplicationsReportPage : FleetPage
                 .Build();
             page.Children.Add(Spaced(deviceTable, 14));
         }
+    }
+
+    private UIElement UsageBody(State state, ApplicationsReport.UsageReport report,
+        IReadOnlyDictionary<string, Dictionary<string, int>> analysis, Action redraw)
+    {
+        var body = new StackPanel();
+        _switchedOff.IntersectWith(report.Apps.Select(a => a.Name));
+        if (report.Apps.Count > 1) body.Children.Add(Spaced(AppToggles(report, redraw), 14));
+        if (report.Devices.Count > 0) body.Children.Add(Spaced(Widgets(state, report, redraw), 10));
+
+        var apps = ApplicationsReport.ByActiveTime(ApplicationsReport.SwitchedOn(report.Apps, _switchedOff)).Select(a => new UsageRow
+        {
+            App = a,
+            VersionsLabel = ApplicationsReport.VersionsSummary(analysis, a.Name),
+        }).ToList();
+
+        var table = new FilteredTable<UsageRow>("Applications Usage", "{0} of {1} applications", apps, (r, q) => r.Matches(q),
+                [
+                    Col.Text("Application", "Name", star: true),
+                    Col.Text("Versions", "VersionsLabel", 170, wrap: true),
+                    Col.Text("Active time", "Active", 120, sub: "ActiveSub", sortBy: "ActiveValue"),
+                    Col.Text("Process time", "Process", 120, sub: "ProcessSub", sortBy: "ProcessValue"),
+                    Col.Text("Launches", "Launches", 90, sortBy: "LaunchValue"),
+                    Col.Text("Active devices", "Devices", 120, sub: "DevicesSub", sortBy: "DeviceValue"),
+                    Col.Text("Active users", "Users", 110, sortBy: "UserValue"),
+                    Col.Text("Last used", "LastUsed", 120, sortBy: "LastUsedAt"),
+                    Col.Text("Status", "Status", 100),
+                ], "Search applications...", report.Apps.Count > 0 && apps.Count == 0
+                    ? "Every application in this report is switched off."
+                    : "No usage was reported for this selection. Try a longer period or fewer filters.")
+            .WithQuery(state.Query)
+            .WithRowLink(r => state.UsageDrillLink(r.Name))
+            .WithCsv(ApplicationsReport.CsvFileName(state, DateTime.Now), ApplicationsReport.UsageCsvHeaders,
+                r => ApplicationsReport.UsageCsvRow(r.App))
+            .Build();
+        body.Children.Add(Spaced(table, 14));
+        return body;
+    }
+
+    /// <summary>
+    /// The web's in-report Applications accordion: a toggle per app in the report,
+    /// with its own search, Select All and Clear. A toggle leaves the selection alone.
+    /// </summary>
+    private UIElement AppToggles(ApplicationsReport.UsageReport report, Action redraw)
+    {
+        var names = report.Apps.Select(a => a.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+        var on = names.Count(n => !_switchedOff.Contains(n));
+
+        var cloud = new WrapPanel();
+        void Fill()
+        {
+            cloud.Children.Clear();
+            var q = _toggleSearch.Trim();
+            foreach (var name in names.Where(n => q.Length == 0 || n.Contains(q, StringComparison.OrdinalIgnoreCase)).Take(ChipLimit))
+                cloud.Children.Add(Chip(name, !_switchedOff.Contains(name), () =>
+                {
+                    if (!_switchedOff.Remove(name)) _switchedOff.Add(name);
+                    redraw();
+                }));
+        }
+
+        var top = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+        var search = new SearchBox("Filter applications...", q => { _toggleSearch = q; Fill(); }) { Width = 260, Margin = new Thickness(0) };
+        top.Children.Add(search);
+        var all = Ui.IconButton("\uE8B3", "Select All", (_, _) => { _switchedOff.Clear(); redraw(); });
+        all.Margin = new Thickness(8, 0, 0, 0);
+        top.Children.Add(all);
+        var none = Ui.IconButton("\uE894", "Clear", (_, _) => { _switchedOff.UnionWith(names); redraw(); });
+        none.Margin = new Thickness(8, 0, 0, 0);
+        top.Children.Add(none);
+
+        var body = new StackPanel { Margin = new Thickness(0, 8, 0, 4) };
+        body.Children.Add(top);
+        body.Children.Add(cloud);
+        if (_toggleSearch.Length > 0) search.Text = _toggleSearch;
+        else Fill();
+
+        var expander = Ui.Collapsible($"Applications in this report · {on:N0} of {names.Count:N0} on", body, _togglesOpen);
+        expander.Expanded += (_, _) => _togglesOpen = true;
+        expander.Collapsed += (_, _) => _togglesOpen = false;
+        return expander;
+    }
+
+    /// <summary>
+    /// The web's usage widgets, in its order: by usage type, by catalog and the device
+    /// distribution, then by fleet, by area and by location. A bar opens the report
+    /// narrowed to that value, as the dashboard's bars open theirs.
+    /// </summary>
+    private UIElement Widgets(State state, ApplicationsReport.UsageReport report, Action redraw)
+    {
+        var metric = _metric;
+        var agg = ApplicationsReport.Aggregate(report.Devices, report.Apps, _switchedOff, metric);
+        var label = metric == ApplicationsReport.UsageMetric.Hours ? "Hours" : "Launches";
+
+        var grid = Ui.CardGrid(300, 14);
+        grid.MaxColumns = 3;
+        grid.Margin = new Thickness(0, 8, 0, 0);
+
+        void Dimension(string title, IReadOnlyList<(string Label, double Value)> rows, Func<string, State>? narrow)
+        {
+            if (rows.Count == 0) return;
+            var list = new StackPanel();
+            foreach (var (name, value) in rows)
+            {
+                var bar = Charts.Bar(name, (int)Math.Round(value), (int)Math.Round(agg.GrandTotal), Tone.Info);
+                if (bar is FrameworkElement fe) fe.ToolTip = ApplicationsReport.FormatMetric(value, metric);
+                list.Children.Add(narrow is null ? bar : Linkable.Wrap(bar, narrow(name).Link(), $"Show usage for {name} alone"));
+            }
+            grid.Children.Add(Ui.StatBlock(title, null, "", Accent.Blue, new Border { Padding = new Thickness(20, 4, 20, 14), Child = list }));
+        }
+
+        Dimension($"{label} by Usage Type", agg.ByUsage, v => state with { Usages = [v] });
+        Dimension($"{label} by Catalog", agg.ByCatalog, v => state with { Catalogs = [v] });
+        if (agg.HasBins)
+        {
+            var bins = new StackPanel();
+            foreach (var bin in agg.Bins) bins.Children.Add(Charts.Bar(bin.Label, bin.Count, agg.DeviceCount, Tone.Info));
+            grid.Children.Add(Ui.StatBlock($"Device {label} Distribution", null, "", Accent.Blue,
+                new Border { Padding = new Thickness(20, 4, 20, 14), Child = bins }));
+        }
+        Dimension($"{label} by Fleet", agg.ByFleet, v => state with { Fleets = [v] });
+        Dimension($"{label} by Area (top 10)", agg.ByArea, v => state with { Areas = [v] });
+        Dimension($"{label} by Location (top 10)", agg.ByLocation, v => state with { Locations = [v] });
+
+        var switcher = Ui.Segmented([("launches", "Launches"), ("hours", "Hours")],
+            metric == ApplicationsReport.UsageMetric.Hours ? "hours" : "launches", key =>
+            {
+                _metric = key == "hours" ? ApplicationsReport.UsageMetric.Hours : ApplicationsReport.UsageMetric.Launches;
+                redraw();
+            });
+        var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+        head.Children.Add(switcher);
+        var count = Ui.Caption($"Aggregate stats across {agg.DeviceCount:N0} {(agg.DeviceCount == 1 ? "device" : "devices")}");
+        count.Margin = new Thickness(12, 0, 0, 0);
+        count.VerticalAlignment = VerticalAlignment.Center;
+        head.Children.Add(count);
+
+        var body = new StackPanel();
+        body.Children.Add(head);
+        body.Children.Add(grid);
+        var expander = Ui.Collapsible("Widgets", body, _widgetsOpen);
+        expander.Expanded += (_, _) => _widgetsOpen = true;
+        expander.Collapsed += (_, _) => _widgetsOpen = false;
+        return expander;
     }
 
     public sealed class UsageRow
