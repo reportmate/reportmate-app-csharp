@@ -154,11 +154,11 @@ These are the link parameters the reports read. Multiple values are comma-separa
 | `devices` | `status`, `search`, `platform` |
 | `system` | `osVersion`, `uptime` (`lt1d`, `1-3d`, `3-7d`, `1-2w`, `2-4w`, `30d+`), `pending` (`up-to-date`, `1-5`, `6-10`, `10+`), `deferred=1`, `edition`, `os` (`unsupported`, `windows10`), `patch` (`behind`, `latest`) |
 | `security` | `encryption=off`, `firewall=off`, `antivirus=off`, `sip=off`, `secureBoot=off`, `threats=1`, `certs=expired\|expiring`, `cve=critical\|exploited`, `certSearch=<text>`, `certStatus=expiring\|expired` |
-| `management` | `provider`, `enrolled=0\|1`, `enrollmentType` |
+| `management` | `provider`, `enrolled=0\|1`, `enrollmentType`, `platform=macOS\|Windows` (this report only), `lastSeen=24h\|1-7d\|7d+` |
 | `hardware` | `arch` (`Apple Silicon`, `Intel`, `ARM64`, `x64`), `storage=low`, `memory=le8`, `type=laptop\|desktop`, `processor` |
 | `installs` | `filter=errors\|warnings`, `item=<name>`, `stale=1` |
 | `events/failures` | `hours`, `reason`, `outcome` |
-| `identity` | `admins=extra`, `join=entra\|domain\|hybrid\|workgroup`, `usage=shared\|assigned` |
+| `identity` | `admins=extra\|2\|3\|4+`, `join=entra\|domain\|hybrid\|workgroup`, `usage=shared\|assigned` |
 | `applications` | `apps`, `publishers`, `versions`; `applications/usage/<app>?days=30` for one app |
 | `network` | `connection=wired\|wifi`, `signal=weak` (under 25%), `quality=poor`, `vpn=1` |
 | `peripherals` | `kind=printers\|displays`, `room=<room>` |

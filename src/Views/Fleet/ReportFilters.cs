@@ -99,6 +99,14 @@ public static class ReportFilters
             ["provider"] = Simple((r, w) => Eq(Management.Provider(r), w)),
             ["enrolled"] = Has(r => Insights.Boolish(r, "isEnrolled")),
             ["enrollmentType"] = Simple((r, w) => Eq(Insights.Str(r, "enrollmentType"), w)),
+            // This report only: the toolbar's platform scope is left as it is.
+            ["platform"] = Simple((r, w) => w.ToLowerInvariant() switch
+            {
+                "macos" or "mac" => Insights.IsMac(r),
+                "windows" or "win" => Insights.IsWindows(r),
+                _ => false,
+            }),
+            ["lastSeen"] = Simple((r, w) => Eq(Insights.LastSeenKey(r, DateTime.UtcNow), w)),
         },
 
         ["hardware"] = new(StringComparer.OrdinalIgnoreCase)
@@ -131,7 +139,14 @@ public static class ReportFilters
 
         ["identity"] = new(StringComparer.OrdinalIgnoreCase)
         {
-            ["admins"] = Simple((r, w) => Eq(w, "extra") && Insights.HasExtraAdmins(r)),
+            // "extra" is more than one; a number is exactly that many, and 4+ four or more.
+            ["admins"] = Simple((r, w) => w.Trim() switch
+            {
+                "extra" => Insights.HasExtraAdmins(r),
+                "4+" => Insights.AdminCount(r) >= 4,
+                var n when int.TryParse(n, out var exact) => Insights.AdminCount(r) == exact,
+                _ => false,
+            }),
             ["join"] = Simple((r, w) => Eq(Insights.JoinType(r), w)),
             ["usage"] = Simple((r, w) => Eq(Insights.Usage(r), w)),
         },

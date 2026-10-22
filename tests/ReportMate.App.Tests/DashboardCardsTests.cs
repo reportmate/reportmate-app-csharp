@@ -263,6 +263,50 @@ public class DashboardCardsTests
         Assert.Equal(["SAMPLE2", "SAMPLE3"], Serials("identity", "usage", "assigned", IdentityRows));
     }
 
+    [Fact]
+    public void TheIdentityReportFiltersByExactAdminCount()
+    {
+        var rows = Rows("""
+            [{"serialNumber":"SAMPLE1","summary":{"adminUsers":1}},
+             {"serialNumber":"SAMPLE2","summary":{"adminUsers":2}},
+             {"serialNumber":"SAMPLE3","summary":{"adminUsers":3}},
+             {"serialNumber":"SAMPLE4","summary":{"adminUsers":4}},
+             {"serialNumber":"SAMPLE5","summary":{"adminUsers":7}}]
+            """);
+        Assert.Equal(["SAMPLE2"], Serials("identity", "admins", "2", rows));
+        Assert.Equal(["SAMPLE3"], Serials("identity", "admins", "3", rows));
+        Assert.Equal(["SAMPLE4", "SAMPLE5"], Serials("identity", "admins", "4+", rows));
+        Assert.Equal(["SAMPLE2", "SAMPLE3", "SAMPLE4", "SAMPLE5"], Serials("identity", "admins", "extra", rows));
+        Assert.Equal(["SAMPLE2", "SAMPLE4", "SAMPLE5"], Serials("identity", "admins", "2,4+", rows));
+    }
+
+    [Fact]
+    public void TheManagementReportFiltersByPlatformAndLastSeen()
+    {
+        string Ago(double hours) => DateTime.UtcNow.AddHours(-hours).ToString("o");
+        var rows = Rows($$"""
+            [{"serialNumber":"SAMPLE1","platform":"macOS","lastSeen":"{{Ago(2)}}"},
+             {"serialNumber":"SAMPLE2","platform":"Windows","lastSeen":"{{Ago(30)}}"},
+             {"serialNumber":"SAMPLE3","platform":"Windows 11","lastSeen":"{{Ago(24 * 9)}}"},
+             {"serialNumber":"SAMPLE4","platform":"macOS"}]
+            """);
+        Assert.Equal(["SAMPLE1", "SAMPLE4"], Serials("management", "platform", "macOS", rows));
+        Assert.Equal(["SAMPLE2", "SAMPLE3"], Serials("management", "platform", "Windows", rows));
+        Assert.Equal(["SAMPLE1"], Serials("management", "lastSeen", "24h", rows));
+        Assert.Equal(["SAMPLE2"], Serials("management", "lastSeen", "1-7d", rows));
+        // No last-seen time counts as missing, as the device list counts it.
+        Assert.Equal(["SAMPLE3", "SAMPLE4"], Serials("management", "lastSeen", "7d+", rows));
+    }
+
+    [Theory]
+    [InlineData("reportmate://management?platform=macOS&lastSeen=7d%2B", "management", "lastSeen", "7d+")]
+    [InlineData("reportmate://identity?admins=4%2B", "identity", "admins", "4+")]
+    public void TheNewManagementAndIdentityLinksParse(string url, string section, string key, string value)
+    {
+        var link = DeepLink.Parse(url)!;
+        Assert.Equal((section, value), (link.Section, link[key]));
+    }
+
     // ── App usage ────────────────────────────────────────────────────────
 
     [Fact]

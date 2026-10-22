@@ -338,6 +338,25 @@ public static partial class Insights
         };
     }
 
+    /// <summary>The local administrator accounts a device reports.</summary>
+    public static int AdminCount(JsonElement row) =>
+        Prop(row, "summary") is { } summary ? Int(summary, "adminUsers") : 0;
+
+    /// <summary>
+    /// How long since a device last checked in, as the management report's
+    /// <c>lastSeen</c> link names it: <c>24h</c>, <c>1-7d</c> or <c>7d+</c>. The
+    /// thresholds are the device list's active, stale and missing ones; a row with no
+    /// last-seen time counts as <c>7d+</c>, as the device list counts it missing.
+    /// </summary>
+    public static string LastSeenKey(JsonElement row, DateTime nowUtc)
+    {
+        var text = Str(row, "lastSeen");
+        if (!DateTime.TryParse(text, CultureInfo.InvariantCulture,
+                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var seen)) return "7d+";
+        var hours = (nowUtc - seen).TotalHours;
+        return hours < 24 ? "24h" : hours < 168 ? "1-7d" : "7d+";
+    }
+
     /// <summary>More than one local administrator.</summary>
     public static bool HasExtraAdmins(JsonElement row) =>
         Prop(row, "summary") is { } summary && Int(summary, "adminUsers") > 1;
