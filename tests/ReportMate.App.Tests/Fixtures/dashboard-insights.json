@@ -1057,8 +1057,12 @@
    }
   },
   "userAccounts": {
-   "authentication": {
-    "modern": {
+   "generatedAt": "2026-10-22T18:00:00Z",
+   "total": 10,
+   "authentication": [
+    {
+     "key": "modern",
+     "label": "Modern",
      "count": 6,
      "link": {
       "path": "/identity",
@@ -1067,7 +1071,9 @@
       }
      }
     },
-    "standard": {
+    {
+     "key": "standard",
+     "label": "Standard",
      "count": 4,
      "link": {
       "path": "/identity",
@@ -1076,7 +1082,7 @@
       }
      }
     }
-   },
+   ],
    "adminAccounts": [
     {
      "name": "admin",

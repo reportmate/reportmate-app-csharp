@@ -54,7 +54,9 @@ public static class ManagementLogsReport
     public sealed record Device(string Serial, string Name, string? Platform, string Tool, string ToolName,
         int Errors, int Warnings, DateTime? LastAt);
 
-    public sealed record Report(IReadOnlyList<Tool> Tools, IReadOnlyList<Message> Messages, IReadOnlyList<Device> Devices, int WindowHours);
+    /// <param name="DevicesTruncated">The API lists at most 1,000 devices and says when there were more.</param>
+    public sealed record Report(IReadOnlyList<Tool> Tools, IReadOnlyList<Message> Messages, IReadOnlyList<Device> Devices, int WindowHours,
+        bool DevicesTruncated = false);
 
     private static bool IsMdm(string tool) =>
         tool.Equals("mdm", StringComparison.OrdinalIgnoreCase) || tool.Equals("enrollment", StringComparison.OrdinalIgnoreCase);
@@ -131,7 +133,8 @@ public static class ManagementLogsReport
             .ThenByDescending(d => d.LastAt)
             .ToList();
 
-        return new Report(tools, messages, devices, Insights.Int(r, "windowHours") is var h and > 0 ? h : Insights.Int(r, "hours"));
+        return new Report(tools, messages, devices, Insights.Int(r, "windowHours") is var h and > 0 ? h : Insights.Int(r, "hours"),
+            Insights.Boolish(r, "devicesTruncated"));
     }
 
     /// <summary>A tool's trend as a run of block characters, for a table cell: ▁▃▅█.</summary>

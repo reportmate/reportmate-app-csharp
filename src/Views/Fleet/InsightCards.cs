@@ -296,7 +296,8 @@ public static class InsightCards
             .Select(t =>
             {
                 var withErrors = Insights.Int(t, "devicesWithErrors");
-                return new Metric(Insights.Str(t, "name"), withErrors, ToolsLogsLink(Insights.Str(t, "tool"), "error", Insights.Str(t, "platform")),
+                return new Metric(Insights.Str(t, "name"), withErrors,
+                    ReportLink(t) ?? ToolsLogsLink(Insights.Str(t, "tool"), "error", Insights.Str(t, "platform")),
                     When(withErrors, Severity.Bad),
                     Value: $"{withErrors:N0}",
                     Detail: $"{withErrors:N0} devices with errors · {Insights.Int(t, "devicesWithWarnings"):N0} with warnings · {Insights.Int(t, "errorLines"):N0} error lines",
@@ -315,7 +316,7 @@ public static class InsightCards
             .Where(m => !IsMdmTool(m))
             .GroupBy(m => (Tool: Insights.Str(m, "tool"), Message: NormalizeMessage(Insights.Str(m, "message"))))
             .Select(g => (g.Key.Message, Name: Insights.Str(g.First(), "name"), Devices: g.Sum(m => Insights.Int(m, "devices")),
-                Link: ToolsLogsLink(g.Key.Tool, "error", Insights.Str(g.First(), "platform"),
+                Link: ReportLink(g.First()) ?? ToolsLogsLink(g.Key.Tool, "error", Insights.Str(g.First(), "platform"),
                     Insights.Str(g.First(), "messageId") is { Length: > 0 } id ? id : MessageId(g.Key.Message))))
             .OrderByDescending(g => g.Devices)
             .Take(5)
@@ -399,6 +400,13 @@ public static class InsightCards
             ("platform", string.IsNullOrWhiteSpace(platform) ? null : platform), ("message", message));
 
     /// <summary>
+    /// The server's own link when it already points into the Tools Logs report, as
+    /// the revision-6 API's do; an earlier one pointed at the device list.
+    /// </summary>
+    private static DeepLink? ReportLink(JsonElement node) =>
+        ToDeepLink(Insights.Prop(node, "link")) is { Section: "management", Argument: "logs" } link ? link : null;
+
+    /// <summary>
     /// A normalised message's id, when the server sends none: a short stable hash of
     /// the text, so a link and the report's message filter name the same message.
     /// </summary>
@@ -434,7 +442,8 @@ public static class InsightCards
                     slices.Add(new Metric(label, Insights.Int(seg, "count"),
                         ToDeepLink(Insights.Prop(seg, "link")) ?? DeepLink.For("identity", null, ("auth", key)), severity));
         if (slices.Count > 0)
-            parts.Add(new DonutPart(slices.Sum(s => s.Count).ToString("N0", CultureInfo.CurrentCulture), "devices", slices));
+            parts.Add(new DonutPart((Format.ToInt(Insights.Number(c, "total")) ?? (int)slices.Sum(s => s.Count)).ToString("N0", CultureInfo.CurrentCulture),
+                "devices", slices));
 
         var admins = new[] { "adminAccounts", "topAdmins", "admins" }
             .Select(n => Array(c, n).ToList()).FirstOrDefault(l => l.Count > 0) ?? [];

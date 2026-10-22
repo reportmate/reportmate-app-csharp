@@ -65,6 +65,12 @@ public sealed class ManagementLogsPage : FleetPage
         page.Children.Add(Spaced(ToolsTable(report)));
         page.Children.Add(Spaced(MessagesTable(report)));
         page.Children.Add(Spaced(DevicesTable(report)));
+        if (report.DevicesTruncated)
+        {
+            var note = Ui.Caption($"Showing the first {report.Devices.Count:N0} devices; narrow by tool, level or message to see the rest.");
+            note.Margin = new Thickness(0, 8, 0, 0);
+            page.Children.Add(note);
+        }
         return page;
     }
 
