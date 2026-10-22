@@ -43,6 +43,9 @@ public sealed class DeviceSnapshot
     /// <summary>When the API last heard from the device.</summary>
     public DateTime? LastSeen { get; init; }
 
+    /// <summary>When the device first reported to the API: the Inventory card's Registered.</summary>
+    public DateTime? CreatedAt { get; init; }
+
     /// <summary>True when the API has the device archived.</summary>
     public bool Archived { get; init; }
 

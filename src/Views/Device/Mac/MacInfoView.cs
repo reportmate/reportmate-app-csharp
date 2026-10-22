@@ -20,7 +20,7 @@ public static class MacInfoView
 
         var grid = Ui.CardGrid(400, 24);
         grid.MaxColumns = 6;
-        grid.Children.Add(Inventory(info.Inventory));
+        grid.Children.Add(Inventory(info.Inventory, s.CreatedAt));
         grid.Children.Add(SystemCard(info.System));
         grid.Children.Add(Hardware(info.Hardware));
         grid.Children.Add(Management(info.Management));
@@ -45,12 +45,14 @@ public static class MacInfoView
 
     // ── Inventory ───────────────────────────────────────────────────
 
-    private static UIElement Inventory(MacInventorySummary inv)
+    private static UIElement Inventory(MacInventorySummary inv, DateTime? registered)
     {
         var identity = Ui.VStack(
             Ui.Stat("Device Name", inv.DeviceName),
             inv.AssetTag is not null ? Ui.Stat("Asset Tag", inv.AssetTag, mono: true, copy: true) : null,
-            Ui.Stat("Serial Number", inv.SerialNumber, mono: true, copy: true));
+            Ui.Stat("Serial Number", inv.SerialNumber, mono: true, copy: true),
+            // When the device first reported, as the web's Inventory card shows it.
+            registered is { } at ? Ui.Stat("Registered", Format.ShortDate(at)) : null);
 
         UIElement body = inv.Assignments.Count > 0
             ? Ui.Columns([3, 2], 24, identity, Ui.VStack(inv.Assignments.Select(a => (UIElement?)Ui.Stat(a.Label, a.Value)).ToArray()))

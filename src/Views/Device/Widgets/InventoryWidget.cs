@@ -13,7 +13,9 @@ public static class InventoryWidget
         var identity = Ui.VStack(
             Ui.Stat("Device Name", s.DeviceName),
             !string.IsNullOrWhiteSpace(inv?.AssetTag) ? Ui.Stat("Asset Tag", inv!.AssetTag, mono: true, copy: true) : Ui.Spacer(0),
-            Ui.Stat("Serial Number", s.SerialNumber, mono: true, copy: true));
+            Ui.Stat("Serial Number", s.SerialNumber, mono: true, copy: true),
+            // A fleet device's first report to the API, as the web's Inventory card shows it.
+            s.CreatedAt is { } registered ? Ui.Stat("Registered", Format.ShortDate(registered)) : Ui.Spacer(0));
 
         var assignments = new List<(string Label, string? Value)>
         {

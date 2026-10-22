@@ -14,7 +14,7 @@ public class RemoteDeviceTests
     private const string Device = """
         {"success":true,"device":{
           "serialNumber":"SAMPLE1","deviceId":"00000000-0000-0000-0000-000000000001","name":"Sample Desktop",
-          "platform":"Windows","clientVersion":"2026.10.20.1200","lastSeen":"2026-10-22T18:00:00+00:00",
+          "platform":"Windows","clientVersion":"2026.10.20.1200","lastSeen":"2026-10-22T18:00:00+00:00","createdAt":"2025-01-15T09:00:00+00:00",
           "archived":false,
           "modules":{
             "inventory":{"deviceName":"Sample Desktop","serialNumber":"SAMPLE1","assetTag":"A0001","collectedAt":"2026-10-22T17:55:00Z"},
@@ -58,6 +58,7 @@ public class RemoteDeviceTests
         Assert.Equal(new DateTime(2026, 10, 22, 17, 55, 0, DateTimeKind.Utc), s.CollectedAtFor("inventory")!.Value.ToUniversalTime());
         Assert.Equal(new DateTime(2026, 10, 22, 18, 0, 0, DateTimeKind.Utc), s.CollectedAtFor("system")!.Value.ToUniversalTime());
         Assert.Equal(new DateTime(2026, 10, 22, 18, 0, 0, DateTimeKind.Utc), s.LastSeen!.Value.ToUniversalTime());
+        Assert.Equal(new DateTime(2025, 1, 15, 9, 0, 0, DateTimeKind.Utc), s.CreatedAt!.Value.ToUniversalTime());
     }
 
     [Fact]

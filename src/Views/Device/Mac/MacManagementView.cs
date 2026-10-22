@@ -76,8 +76,7 @@ public static class MacManagementView
         {
             Section("Enrollment Details");
             body.Children.Add(Ui.Columns(2, 16,
-                Ui.VStack(YesNo("ADE Enrolled", m.InstalledFromDep), YesNo("ADE Capable", m.DepCapable),
-                    m.IsSupervised is { } supervised ? YesNo("Supervised", supervised) : null),
+                Ui.VStack(YesNo("ADE Enrolled", m.InstalledFromDep), YesNo("ADE Capable", m.DepCapable)),
                 Ui.VStack(YesNo("User Approved", m.UserApproved),
                     Ui.Row("Identity Certificate", Ui.Pill(m.EnrollmentMethod ?? "Unknown", m.EnrollmentMethod is null ? Tone.Neutral : Tone.Success)))));
             if (m.DeviceUuid is { } uuid) { body.Children.Add(Ui.Spacer(10)); body.Children.Add(Ui.Stat("UUID", uuid, mono: true, copy: true, truncate: true)); }

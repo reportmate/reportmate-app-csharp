@@ -105,6 +105,7 @@ public static class RemoteDevice
             RemoteName = Str(device, "name"),
             Platform = platform,
             LastSeen = lastSeen,
+            CreatedAt = Date(device, "createdAt", "registrationDate"),
             Archived = Prop(device, "archived") is { ValueKind: JsonValueKind.True },
             FetchLogRoot = fetchLogRoot,
             FetchRunLog = fetchRunLog,
