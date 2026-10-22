@@ -13,7 +13,7 @@ namespace ReportMate.App.Views.Device.Mac;
 /// </summary>
 public static class MacApplicationsView
 {
-    private const string Glyph = "";
+    private const string Glyph = "\uE71D";
     private const Accent TabAccent = Accent.Blue;
     private const string Subtitle = "Versions installed and how much each is used";
 

@@ -18,7 +18,7 @@ public sealed class ManagementTab : DeviceTab
 {
     public override string Id => "management";
     public override string Label => "Management";
-    public override string Glyph => "";
+    public override string Glyph => "\uE8D7";
     public override Accent Accent => Accent.Yellow;
     public override string Description => "Device management, enrollment, and configuration profiles";
 

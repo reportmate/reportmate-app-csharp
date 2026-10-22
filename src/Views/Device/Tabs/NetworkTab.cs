@@ -10,7 +10,7 @@ public sealed class NetworkTab : DeviceTab
 {
     public override string Id => "network";
     public override string Label => "Network";
-    public override string Glyph => "";
+    public override string Glyph => "\uE968";
     public override Accent Accent => Accent.Teal;
     public override string Description => "Network connectivity and settings";
 

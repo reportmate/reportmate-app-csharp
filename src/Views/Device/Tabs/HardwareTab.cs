@@ -13,7 +13,7 @@ public sealed class HardwareTab : DeviceTab
 {
     public override string Id => "hardware";
     public override string Label => "Hardware";
-    public override string Glyph => "";
+    public override string Glyph => "\uE950";
     public override Accent Accent => Accent.Orange;
     public override string Description => "Hardware specifications and performance";
 

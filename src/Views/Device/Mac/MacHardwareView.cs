@@ -18,7 +18,7 @@ namespace ReportMate.App.Views.Device.Mac;
 /// </summary>
 public static class MacHardwareView
 {
-    private const string Glyph = "";
+    private const string Glyph = "\uE950";
 
     private sealed record DriveRow(string Name, string Model, string Serial, string Type, string Capacity, string Free, double UsedPercent, string FileSystem, string Health, Tone HealthTone, string Interface);
     private sealed record ModuleRow(string Location, string Type, string Capacity, string Speed, string Manufacturer);

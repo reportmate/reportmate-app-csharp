@@ -15,7 +15,7 @@ public sealed class SecurityTab : DeviceTab
 {
     public override string Id => "security";
     public override string Label => "Security";
-    public override string Glyph => "";
+    public override string Glyph => "\uE72E";
     public override Accent Accent => Accent.Red;
     public override string Description => "Security status and compliance";
 

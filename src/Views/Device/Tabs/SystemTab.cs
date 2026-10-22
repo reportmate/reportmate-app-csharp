@@ -12,7 +12,7 @@ public sealed class SystemTab : DeviceTab
 {
     public override string Id => "system";
     public override string Label => "System";
-    public override string Glyph => "";
+    public override string Glyph => "\uE713";
     public override Accent Accent => Accent.Purple;
     public override string Description => "Operating system and system information";
 

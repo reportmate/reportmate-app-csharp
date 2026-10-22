@@ -12,7 +12,7 @@ public sealed class InfoTab : DeviceTab
 
     protected override string[] MacModules => ["inventory", "system", "hardware"];
     public override string Label => "Info";
-    public override string Glyph => "";
+    public override string Glyph => "\uE946";
     public override Accent Accent => Accent.Mono;
     public override string Description => "Device information, management status, and system details";
 

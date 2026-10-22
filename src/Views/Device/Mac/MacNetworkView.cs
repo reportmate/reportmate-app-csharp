@@ -15,7 +15,7 @@ namespace ReportMate.App.Views.Device.Mac;
 public static class MacNetworkView
 {
     // The same header glyph and accent as the Windows Network tab.
-    private const string Glyph = "";
+    private const string Glyph = "\uE968";
     private static readonly Accent Accent = Accent.Teal;
 
     public static UIElement? Build(DeviceSnapshot s)

@@ -18,7 +18,7 @@ namespace ReportMate.App.Views.Device.Mac;
 /// </summary>
 public static class MacIdentityView
 {
-    private const string Glyph = "";
+    private const string Glyph = "\uE77B";
     private const Accent TabAccent = Accent.Indigo;
 
     private sealed record SessionRow(string User, string Tty, string Host, string LoginTime, string Pid);

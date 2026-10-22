@@ -26,7 +26,7 @@ public static class MacPeripheralsView
         if (!s.RawModules.TryGetValue("peripherals", out var raw)) return null;
         var p = new P(raw);
         var page = new StackPanel();
-        page.Children.Add(Ui.TabHeader("Peripherals", "Connected devices by category", "", Accent.Cyan));
+        page.Children.Add(Ui.TabHeader("Peripherals", "Connected devices by category", "\uE88E", Accent.Cyan));
 
         if (!p.HasData)
         {

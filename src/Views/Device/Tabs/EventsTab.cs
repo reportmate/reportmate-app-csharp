@@ -19,7 +19,7 @@ public sealed class EventsTab : DeviceTab
     // Events are the same shape from either platform.
     protected override string[] MacModules => [];
     public override string Label => "Events";
-    public override string Glyph => "";
+    public override string Glyph => "\uE81C";
     public override Accent Accent => Accent.Mono;
     public override string Description => "Event history and activity log";
 
