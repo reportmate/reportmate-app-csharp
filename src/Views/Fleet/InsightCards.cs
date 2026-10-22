@@ -66,7 +66,7 @@ public static class InsightCards
     public static readonly IReadOnlyList<string> Keys =
     [
         "installHealth", "rebootDebt", "protectionGaps", "managementToolLogs", "storage",
-        "checkinGaps", "osCurrency", "softwareRisk", "expiringCertificates", "directoryServices",
+        "checkinGaps", "updateDebt", "softwareRisk", "expiringCertificates", "directoryServices",
         "connectivityProblems",
     ];
 
@@ -79,6 +79,8 @@ public static class InsightCards
     {
         "managementToolLogs" => ["managementToolLogs", "managementToolErrors"],
         "directoryServices" => ["directoryServices", "directoryJoin"],
+        // OS Currency became Update Debt; the API keeps the old name for one release.
+        "updateDebt" => ["updateDebt", "osCurrency"],
         _ => [key],
     };
 
@@ -183,7 +185,7 @@ public static class InsightCards
             "managementToolLogs" or "managementToolErrors" => ManagementTools(c),
             "storage" => Storage(c),
             "checkinGaps" => CheckinGaps(c, scoped),
-            "osCurrency" => OsCurrency(c),
+            "updateDebt" or "osCurrency" => UpdateDebt(c),
             "softwareRisk" => SoftwareRisk(c),
             "expiringCertificates" => Certificates(c),
             "directoryServices" or "directoryJoin" => DirectoryServices(c, view),
@@ -208,11 +210,6 @@ public static class InsightCards
                 .Select(b => new Metric(Insights.Str(b, "label"), Insights.Int(b, "count"),
                     ToDeepLink(Insights.Prop(b, "link")), Severity.Warning))
                 .ToList()),
-            new ChipsPart(
-            [
-                Figure(c, "pendingUpdates", "with pending updates", Severity.Warning),
-                Figure(c, "deferredUpdates", "with deferred updates", Severity.Warning),
-            ]),
         ]);
     }
 
@@ -528,6 +525,26 @@ public static class InsightCards
             Figure(c, "stale", "silent 1–7 days", Severity.Warning),
             Figure(c, "missing", "silent over 7 days", Severity.Bad),
         ]));
+        return new CardView(parts);
+    }
+
+    /// <summary>
+    /// Update Debt, formerly OS Currency: devices behind their latest patch, plus the
+    /// pending and deferred updates that moved here from Reboot Debt. An earlier
+    /// OS Currency section has no pending or deferred counts, and shows without them.
+    /// </summary>
+    private static CardView UpdateDebt(JsonElement c)
+    {
+        var view = OsCurrency(c);
+        var waiting = new List<Metric>();
+        if (Node(c, "pendingUpdates") is not null) waiting.Add(Figure(c, "pendingUpdates", "with pending updates", Severity.Warning));
+        if (Node(c, "deferredUpdates") is not null) waiting.Add(Figure(c, "deferredUpdates", "with deferred updates", Severity.Warning));
+        if (waiting.Count == 0) return view;
+        var parts = view.Parts.ToList();
+        // Beside the version chips, before the list of versions most behind.
+        var chips = parts.FindIndex(p => p is ChipsPart);
+        if (chips >= 0) parts[chips] = new ChipsPart([.. waiting, .. ((ChipsPart)parts[chips]).Items]);
+        else parts.Insert(1, new ChipsPart(waiting));
         return new CardView(parts);
     }
 

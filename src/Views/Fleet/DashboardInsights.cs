@@ -247,17 +247,14 @@ public sealed class DashboardInsightsModel
 /// <summary>Where on the dashboard a card sits.</summary>
 public enum InsightPlacement
 {
-    /// <summary>The insight columns, in the spec's order.</summary>
-    Insights,
-
-    /// <summary>Under Fleet Status in column 1: Install Health.</summary>
+    /// <summary>Column 1, under Fleet Status: Installs, Management Tools Logs, Check-in Gaps.</summary>
     StatusColumn,
 
-    /// <summary>In the wide events column, under Recent Events: App Usage.</summary>
-    ActivityColumn,
+    /// <summary>The first insight column, under New Clients.</summary>
+    ColumnA,
 
-    /// <summary>At the bottom of the first insight column: Reboot &amp; Update Debt.</summary>
-    InsightsLast,
+    /// <summary>The second insight column.</summary>
+    ColumnB,
 }
 
 /// <summary>One insight card: its title, where its header goes, and its skeleton's shape.</summary>
@@ -265,7 +262,7 @@ public enum InsightPlacement
 public sealed record InsightCard(
     string Key, string Title, string Subtitle, Accent Accent, string Glyph, DeepLink Header,
     InsightShape Shape = InsightShape.Figures,
-    InsightPlacement Placement = InsightPlacement.Insights,
+    InsightPlacement Placement = InsightPlacement.ColumnA,
     bool Hero = false);
 
 /// <summary>
@@ -280,10 +277,11 @@ public static class InsightWidgets
     private static DeepLink L(string section) => DeepLink.For(section);
 
     /// <summary>
-    /// The cards, with where each sits. Column 1 holds Fleet Status, then Installs,
-    /// Management Tools Logs and Check-in Gaps; the first insight column starts with
-    /// New Clients and ends with Reboot &amp; Update Debt; App Usage sits under Recent
-    /// Events. Every card follows the toolbar's platform toggle and has none of its own.
+    /// The cards, in Rod's order (the shared spec's revision 5). Column 1: Fleet
+    /// Status, then Installs, Management Tools Logs and Check-in Gaps. First insight
+    /// column: New Clients, Directory Services, Connectivity Problems, Protection Gaps,
+    /// Expiring Certificates. Second: Update Debt, Storage, App Usage, Software Risk,
+    /// Reboot Debt. Every card follows the toolbar's platform toggle and has none of its own.
     /// </summary>
     public static readonly IReadOnlyList<InsightCard> All =
     [
@@ -293,18 +291,23 @@ public static class InsightWidgets
             Placement: InsightPlacement.StatusColumn),
         new("checkinGaps", "Check-in Gaps", "Turned away, and gone quiet", Accent.Red, "\uE7BA",
             DeepLink.For("events", "failures", ("hours", "24")), Placement: InsightPlacement.StatusColumn),
-        new("protectionGaps", "Protection Gaps", "Devices missing a protection", Accent.Red, GlyphOf("security"), L("security"), InsightShape.Bars),
-        new("storage", "Storage", "Free space and capacity", Accent.Orange, GlyphOf("hardware"), L("hardware"), InsightShape.Bars),
-        new("osCurrency", "OS Currency", "On the latest patch for their version", Accent.Purple, GlyphOf("system"), L("system"), InsightShape.Donut),
-        new("softwareRisk", "Software Risk", "Vulnerabilities and items behind", Accent.Red, GlyphOf("security"), L("security")),
-        new("expiringCertificates", "Expiring Certificates", "Expiring soon, and already expired", Accent.Yellow, "\uEB95", L("security")),
+
         new("directoryServices", "Directory Services", "How devices are joined, and who administers them", Accent.Indigo, GlyphOf("identity"), L("identity"), InsightShape.Donut),
         new("connectivityProblems", "Connectivity Problems", "Weak Wi-Fi, poor networks and VPN", Accent.Teal, GlyphOf("network"), L("network")),
-        new("rebootDebt", "Reboot & Update Debt", "Long uptimes and waiting updates", Accent.Orange, GlyphOf("system"), L("system"), InsightShape.Bars,
-            Placement: InsightPlacement.InsightsLast),
+        new("protectionGaps", "Protection Gaps", "Devices missing a protection", Accent.Red, GlyphOf("security"), L("security"), InsightShape.Bars),
+        new("expiringCertificates", "Expiring Certificates", "Expiring soon, and already expired", Accent.Yellow, "\uEB95", L("security")),
+
+        new("updateDebt", "Update Debt", "Behind on patches, and updates waiting", Accent.Purple, GlyphOf("system"), L("system"), InsightShape.Donut,
+            Placement: InsightPlacement.ColumnB),
+        new("storage", "Storage", "Free space and capacity", Accent.Orange, GlyphOf("hardware"), L("hardware"), InsightShape.Bars,
+            Placement: InsightPlacement.ColumnB),
         new(InsightCards.AppUsage, "App Usage", "The most-used apps", Accent.Blue, GlyphOf("applications"),
             DeepLink.For("applications", null, ("type", "usage"), ("period", "30")), InsightShape.Bars,
-            Placement: InsightPlacement.ActivityColumn),
+            Placement: InsightPlacement.ColumnB),
+        new("softwareRisk", "Software Risk", "Vulnerabilities and items behind", Accent.Red, GlyphOf("security"), L("security"),
+            Placement: InsightPlacement.ColumnB),
+        new("rebootDebt", "Reboot Debt", "Devices that have gone too long without a restart", Accent.Orange, GlyphOf("system"), L("system"), InsightShape.Bars,
+            Placement: InsightPlacement.ColumnB),
     ];
 
     /// <summary>The view of an older Directory Join card that matches the toolbar's platform toggle.</summary>

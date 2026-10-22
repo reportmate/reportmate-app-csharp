@@ -232,24 +232,6 @@
      }
     }
    },
-   "pendingUpdates": {
-    "count": 4,
-    "link": {
-     "path": "/system",
-     "params": {
-      "pending": "1-5,6-10,10+"
-     }
-    }
-   },
-   "deferredUpdates": {
-    "count": 1,
-    "link": {
-     "path": "/system",
-     "params": {
-      "deferred": "1"
-     }
-    }
-   },
    "uptimeBuckets": [
     {
      "key": "lt1d",
@@ -743,7 +725,7 @@
     }
    }
   },
-  "osCurrency": {
+  "updateDebt": {
    "devices": 7,
    "rated": 7,
    "onLatest": 6,
@@ -788,7 +770,25 @@
       }
      }
     }
-   ]
+   ],
+   "pendingUpdates": {
+    "count": 4,
+    "link": {
+     "path": "/system",
+     "params": {
+      "pending": "1-5,6-10,10+"
+     }
+    }
+   },
+   "deferredUpdates": {
+    "count": 1,
+    "link": {
+     "path": "/system",
+     "params": {
+      "deferred": "1"
+     }
+    }
+   }
   },
   "softwareRisk": {
    "devices": 10,

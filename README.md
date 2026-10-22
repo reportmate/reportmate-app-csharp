@@ -131,8 +131,9 @@ The dashboard follows the layout and cards shared with the web and Mac apps:
 | 1,940 and over | four columns 1/1/1/2, the cards dealt alternately into two insight columns |
 
 The insight cards each answer one question: Installs, Management Tools Logs (the
-management tools' own logs, without the MDM agent's), Check-in Gaps, Reboot & Update
-Debt, Protection Gaps, Storage, OS Currency, Software Risk, Expiring Certificates,
+management tools' own logs, without the MDM agent's), Check-in Gaps, Reboot Debt
+(uptime), Protection Gaps, Storage, Update Debt (behind on patches, and pending and
+deferred updates), Software Risk, Expiring Certificates,
 Directory Services (the Identity report's classes: Cloud Joined, Domain Joined with
 its Trusted, Unconfirmed and Broken trust, Standard and Unjoined), Connectivity
 Problems, and App Usage (the ten most-used apps on a fixed grid, with Usage and
@@ -146,9 +147,12 @@ repeated every five minutes. A card shows a skeleton for ten seconds at most, th
 its error or "Still loading", with a Retry.
 
 Column 1 holds Fleet Status, then Installs (with the dashboard's largest numbers),
-Management Tools Logs and Check-in Gaps. The first insight column starts with New
-Clients and ends with Reboot & Update Debt. App Usage sits in the wide column under
-Recent Events. Coming back to any fleet page shows what it last
+Management Tools Logs and Check-in Gaps. The first insight column holds New Clients,
+Directory Services, Connectivity Problems, Protection Gaps and Expiring Certificates;
+the second, Update Debt, Storage, App Usage, Software Risk and Reboot Debt. The wide
+column holds Recent Events, Platform Distribution and the OS versions. On a desktop
+the second insight column runs four across underneath; narrower, both flow into one
+grid in the same order. Coming back to any fleet page shows what it last
 had at once and refreshes it in the background, with a thin bar across the top while
 it works. Skeletons, with a sweeping shimmer and a "Loading 1 of 2" bar, appear only
 on a page's first load. The device page always keeps every report as its own tab.

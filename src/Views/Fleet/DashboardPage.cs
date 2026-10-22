@@ -38,16 +38,15 @@ public sealed class DashboardPage : FleetPage
 
         var activity = new StackPanel();
         Stack(activity, Skeleton.Card(Skeleton.List(10, leadingPill: true)));
-        Stack(activity, Skeleton.Card(Skeleton.Bars(6)));
         Stack(activity, Skeleton.Card(Skeleton.Bars(2)));
         Stack(activity, Ui.Columns(2, 14, Skeleton.Card(Skeleton.Bars(5)), Skeleton.Card(Skeleton.Bars(5))));
 
-        var cards = InsightWidgets.All
-            .Where(card => card.Placement == InsightPlacement.Insights)
+        List<FrameworkElement> Cards(InsightPlacement column) => InsightWidgets.All
+            .Where(card => card.Placement == column)
             .Select(card => (FrameworkElement)Skeleton.Card(Skeleton.InsightBody(card.Shape)))
             .ToList();
-        return new DashboardLayout(status, cards, activity,
-            first: Skeleton.Card(Skeleton.List(6)), last: Skeleton.Card(Skeleton.InsightBody(InsightShape.Bars)));
+        return new DashboardLayout(status, [Skeleton.Card(Skeleton.List(6)), .. Cards(InsightPlacement.ColumnA)],
+            Cards(InsightPlacement.ColumnB), activity);
     }
 
     protected override async Task<UIElement> BuildAsync()
@@ -82,30 +81,27 @@ public sealed class DashboardPage : FleetPage
             Tag = card,
         }).ToList();
         WatchInsights(hosts);
-        ContentControl Host(InsightPlacement placement) =>
-            hosts.First(h => ((InsightCard)h.Tag).Placement == placement);
+        List<FrameworkElement> Hosts(InsightPlacement placement) =>
+            hosts.Where(h => ((InsightCard)h.Tag).Placement == placement).Cast<FrameworkElement>().ToList();
 
         // Column 1: Fleet Status, then Installs (with the dashboard's largest
         // numbers), Management Tools Logs and Check-in Gaps.
         var status = new StackPanel();
         Stack(status, StatusWidget(devices));
-        foreach (var host in hosts.Where(h => ((InsightCard)h.Tag).Placement == InsightPlacement.StatusColumn))
+        foreach (var host in Hosts(InsightPlacement.StatusColumn))
             Stack(status, host);
 
-        // App Usage takes the wide column's room for its app names, under the events.
         var activity = new StackPanel();
         Stack(activity, RecentEventsWidget(data.Events));
-        Stack(activity, Host(InsightPlacement.ActivityColumn));
         Stack(activity, PlatformDistributionWidget(devices));
         Stack(activity, Ui.Columns(2, 14,
             OsVersionWidget(devices, "Windows"),
             OsVersionWidget(devices, "macOS")));
 
-        var insightCards = hosts.Where(h => ((InsightCard)h.Tag).Placement == InsightPlacement.Insights)
-            .Cast<FrameworkElement>().ToList();
-        // New Clients heads the first insight column, and Reboot & Update Debt ends it.
-        var layout = new DashboardLayout(status, insightCards, activity,
-            first: (FrameworkElement)NewClientsWidget(devices), last: Host(InsightPlacement.InsightsLast))
+        // Rod's order: New Clients heads the first insight column; Reboot Debt ends the second.
+        var layout = new DashboardLayout(status,
+            [(FrameworkElement)NewClientsWidget(devices), .. Hosts(InsightPlacement.ColumnA)],
+            Hosts(InsightPlacement.ColumnB), activity)
         { Margin = new Thickness(0, 20, 0, 0) };
         page.Children.Add(layout);
         return page;
@@ -420,20 +416,25 @@ public sealed class DashboardLayout : Grid
     private readonly FrameworkElement _status;
     private readonly IReadOnlyList<FrameworkElement> _cards;
     private readonly FrameworkElement _activity;
-    private readonly FrameworkElement? _first;
-    private readonly FrameworkElement? _last;
+    private readonly IReadOnlyList<FrameworkElement> _columnA;
+    private readonly IReadOnlyList<FrameworkElement> _columnB;
     private Mode _mode = Mode.None;
 
-    /// <param name="first">Heads the first insight column (New Clients), and the grid when there are no columns.</param>
-    /// <param name="last">Ends the first insight column (Reboot &amp; Update Debt), and the grid.</param>
-    public DashboardLayout(FrameworkElement status, IReadOnlyList<FrameworkElement> cards, FrameworkElement activity,
-        FrameworkElement? first = null, FrameworkElement? last = null)
+    /// <param name="columnA">The first insight column, top to bottom (New Clients first).</param>
+    /// <param name="columnB">The second insight column, top to bottom.</param>
+    /// <remarks>
+    /// The two columns are the order Rod set: on a wide display they stand side by
+    /// side; on a desktop the first stays beside the status column and the second
+    /// runs four across underneath; narrower, both flow into one grid, first then second.
+    /// </remarks>
+    public DashboardLayout(FrameworkElement status, IReadOnlyList<FrameworkElement> columnA,
+        IReadOnlyList<FrameworkElement> columnB, FrameworkElement activity)
     {
         _status = status;
-        _cards = cards;
+        _columnA = columnA;
+        _columnB = columnB;
+        _cards = [.. columnA, .. columnB];
         _activity = activity;
-        _first = first;
-        _last = last;
         Apply(Mode.Medium);
         SizeChanged += (_, e) => Apply(ModeFor(e.NewSize.Width));
     }
@@ -451,7 +452,7 @@ public sealed class DashboardLayout : Grid
 
         // Take every element out of whatever held it before re-placing it.
         Children.Clear();
-        foreach (var card in Everything(_cards))
+        foreach (var card in _cards)
             if (card.Parent is Panel holder) holder.Children.Remove(card);
         ColumnDefinitions.Clear();
         RowDefinitions.Clear();
@@ -470,8 +471,8 @@ public sealed class DashboardLayout : Grid
                 // Insight columns share column 1's width; activity, whose event
                 // messages are the content that wants room, takes the rest.
                 AddColumns(1, 1, 1, 2);
-                var a = Column(Around(_cards.Where((_, i) => i % 2 == 0)));
-                var b = Column(_cards.Where((_, i) => i % 2 == 1));
+                var a = Column(_columnA);
+                var b = Column(_columnB);
                 Place(_status, 0, 0);
                 Place(a, 0, 2);
                 Place(b, 0, 4);
@@ -484,9 +485,9 @@ public sealed class DashboardLayout : Grid
                 AddColumns(1, 1, 2);
                 AddRows(2);
                 Place(_status, 0, 0);
-                Place(Column(Around(_cards.Take(DesktopColumnCards))), 0, 2);
+                Place(Column(_columnA), 0, 2);
                 Place(_activity, 0, 4);
-                var below = Grid(_cards.Skip(DesktopColumnCards), 4);
+                var below = Grid(_columnB, 4);
                 below.Margin = new Thickness(0, Gap, 0, 0);
                 Place(below, 1, 0, span: 5);
                 break;
@@ -498,7 +499,7 @@ public sealed class DashboardLayout : Grid
                 AddRows(2);
                 Place(_status, 0, 0);
                 Place(_activity, 0, 2);
-                var below = Grid(Everything(_cards), 2);
+                var below = Grid(_cards, 2);
                 below.Margin = new Thickness(0, Gap, 0, 0);
                 Place(below, 1, 0, span: 3);
                 break;
@@ -510,7 +511,7 @@ public sealed class DashboardLayout : Grid
                 Place(_status, 0, 0);
                 Place(_activity, 1, 0);
                 _activity.Margin = new Thickness(0, Gap, 0, 0);
-                var below = Grid(Everything(_cards), 2);
+                var below = Grid(_cards, 2);
                 below.Margin = new Thickness(0, Gap, 0, 0);
                 Place(below, 2, 0);
                 break;
@@ -518,15 +519,6 @@ public sealed class DashboardLayout : Grid
         }
     }
 
-    /// <summary>The first column's cards with New Clients before them and Reboot &amp; Update Debt after.</summary>
-    private IEnumerable<FrameworkElement> Around(IEnumerable<FrameworkElement> cards)
-    {
-        if (_first is not null) yield return _first;
-        foreach (var card in cards) yield return card;
-        if (_last is not null) yield return _last;
-    }
-
-    private IEnumerable<FrameworkElement> Everything(IEnumerable<FrameworkElement> cards) => Around(cards);
 
     private void Place(FrameworkElement child, int row, int column, int span = 1)
     {

@@ -51,7 +51,7 @@ public class InsightCardsTests
     public void ServerLinksBecomeAppLinks()
     {
         Assert.Equal("reportmate://system?uptime=30d%2B", Find(View("rebootDebt"), "up 30+ days").Link!.ToAppUrl());
-        Assert.Equal("reportmate://system?pending=1-5%2C6-10%2C10%2B", Find(View("rebootDebt"), "with pending updates").Link!.ToAppUrl());
+        Assert.Equal("reportmate://system?pending=1-5%2C6-10%2C10%2B", Find(View("updateDebt"), "with pending updates").Link!.ToAppUrl());
         Assert.Equal("reportmate://installs?filter=errors&item=Google%20Chrome", Find(View("installHealth"), "Google Chrome").Link!.ToAppUrl());
         Assert.Equal("reportmate://events/failures?hours=24&reason=invalid_passphrase",
             Find(View("checkinGaps"), "Wrong passphrase").Link!.ToAppUrl());
@@ -79,11 +79,29 @@ public class InsightCardsTests
     [Fact]
     public void OsCurrencyDrawsADonutFromTheServersShare()
     {
-        var donut = View("osCurrency").Parts.OfType<DonutPart>().Single();
+        var donut = View("updateDebt").Parts.OfType<DonutPart>().Single();
         Assert.Equal("86%", donut.Centre);
         Assert.Equal([6.0, 1.0], donut.Slices.Select(s => s.Count));
         Assert.Equal("reportmate://system?patch=behind", donut.Slices[1].Link!.ToAppUrl());
-        Assert.Equal("reportmate://system?osVersion=15.5", Find(View("osCurrency"), "macOS 15.5").Link!.ToAppUrl());
+        Assert.Equal("reportmate://system?osVersion=15.5", Find(View("updateDebt"), "macOS 15.5").Link!.ToAppUrl());
+    }
+
+    [Fact]
+    public void UpdateDebtTakesThePendingAndDeferredCountsAndRebootDebtKeepsUptimeOnly()
+    {
+        var update = View("updateDebt");
+        Assert.Equal("reportmate://system?deferred=1", Find(update, "with deferred updates").Link!.ToAppUrl());
+        Assert.Contains(Find(update, "Windows 10"), update.Parts.OfType<ChipsPart>().Single().Items);
+        var reboot = View("rebootDebt");
+        Assert.DoesNotContain(reboot.Parts.OfType<ChipsPart>(), _ => true);
+        Assert.Equal(["updateDebt", "osCurrency"], InsightCards.Endpoints("updateDebt"));
+
+        // An OS Currency section from before the rename draws without the update counts.
+        var old = InsightCards.Build("osCurrency", JsonDocument.Parse("""
+            {"onLatest":5,"pctOnLatest":100,"minDevices":5,"behind":{"count":0},"unsupportedMac":{"count":0},"windows10":{"count":0}}
+            """).RootElement);
+        Assert.Null(old.Error);
+        Assert.DoesNotContain(old.Parts.OfType<ChipsPart>().Single().Items, m => m.Label == "with pending updates");
     }
 
     [Fact]
