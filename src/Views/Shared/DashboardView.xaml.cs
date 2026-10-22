@@ -72,9 +72,12 @@ public partial class DashboardView : UserControl
         TabBarFrame.SizeChanged += (_, _) =>
         {
             if (!_reportsInline || TabBarFrame.ActualWidth <= 0) return;
-            _inlineTabsWidth = TabBarFrame.ActualWidth;
+            _inlineTabsWidth = Math.Max(_inlineTabsWidth, TabBarFrame.ActualWidth);
             BuildTabs();
         };
+        // The arithmetic below decides before layout; this checks after it, so a
+        // header that still ran under the caption buttons folds its reports.
+        HeaderGrid.LayoutUpdated += (_, _) => FoldIfOverflowing();
         BuildTabs();
         Navigate("dashboard");
     }
@@ -142,8 +145,42 @@ public partial class DashboardView : UserControl
     {
         if (_inlineTabsWidth <= 0) return true;
         var columns = HeaderGrid.ColumnDefinitions;
-        var others = columns[0].ActualWidth + columns[1].ActualWidth + columns[4].ActualWidth + SearchColumn.MinWidth;
+        // The search keeps its margins as well as its minimum, and the trailing
+        // column's width already carries the caption buttons' reserve.
+        var search = SearchColumn.MinWidth > 0 ? SearchColumn.MinWidth + SearchHost.Margin.Left + SearchHost.Margin.Right : 0;
+        var others = columns[0].ActualWidth + columns[1].ActualWidth + columns[4].ActualWidth + search + FitSlack;
         return HeaderGrid.ActualWidth > 0 && _inlineTabsWidth <= HeaderGrid.ActualWidth - others;
+    }
+
+    /// <summary>Room kept spare so a tab never ends flush against the caption buttons.</summary>
+    private const double FitSlack = 16;
+
+    /// <summary>
+    /// Fold the reports into one tab when the drawn header is wider than the window:
+    /// the settings button's far edge, plus the room kept for the caption buttons,
+    /// has to land inside the header. At about 1200 px the inline tabs ran on under
+    /// the minimise, maximise and close buttons, because the fit was judged on widths
+    /// measured before the tabs had been laid out.
+    /// </summary>
+    private void FoldIfOverflowing()
+    {
+        if (!_reportsInline || HeaderGrid.ActualWidth <= 0 || TrailingItems.ActualWidth <= 0) return;
+        double right;
+        try
+        {
+            right = TrailingItems.TranslatePoint(new Point(TrailingItems.ActualWidth, 0), HeaderGrid).X
+                    + TrailingItems.Margin.Right;
+        }
+        catch (InvalidOperationException)
+        {
+            return;
+        }
+        var overflow = right - HeaderGrid.ActualWidth;
+        if (overflow <= 0.5) return;
+        // Remember the shortfall as part of the tabs' width, so they stay folded
+        // until the window is wide enough to take them back without overflowing.
+        _inlineTabsWidth = Math.Max(_inlineTabsWidth, TabBarFrame.ActualWidth) + overflow + FitSlack;
+        BuildTabs();
     }
 
     /// <summary>
@@ -197,19 +234,37 @@ public partial class DashboardView : UserControl
     /// <summary>Keep the checked tab matching the page actually shown after a rebuild.</summary>
     private void SyncChecked()
     {
-        foreach (var child in TabBar.Children)
-            if (child is RadioButton rb && rb.Tag?.ToString() == _current) { rb.IsChecked = true; return; }
-
-        // The current page has no tab at this width (a report while collapsed):
-        // show Reports as the active section instead of leaving nothing checked.
-        if (_current.StartsWith("report:", StringComparison.Ordinal))
+        // Checking a tab here only marks where the reader is. Letting it navigate
+        // too sent a report opened while the reports were folded straight on to the
+        // Reports landing page, and rebuilt a page a link had just opened.
+        _syncing = true;
+        try
+        {
             foreach (var child in TabBar.Children)
-                if (child is RadioButton rb && rb.Tag?.ToString() == "reports") { rb.IsChecked = true; return; }
+                if (child is RadioButton rb && rb.Tag?.ToString() == _current) { rb.IsChecked = true; return; }
+
+            // The current page has no tab at this width (a report while collapsed):
+            // show Reports as the active section instead of leaving nothing checked.
+            if (_current.StartsWith("report:", StringComparison.Ordinal)
+                || _current is "failures" or "coverage" || _current.StartsWith("usage:", StringComparison.Ordinal))
+                foreach (var child in TabBar.Children)
+                    if (child is RadioButton rb && rb.Tag?.ToString() == "reports") { rb.IsChecked = true; return; }
+
+            // Nothing on the bar matches (a drill-down page): clear the old mark.
+            foreach (var child in TabBar.Children)
+                if (child is RadioButton { IsChecked: true } rb) rb.IsChecked = false;
+        }
+        finally
+        {
+            _syncing = false;
+        }
     }
+
+    private bool _syncing;
 
     private void OnTabChecked(object sender, RoutedEventArgs e)
     {
-        if (ContentFrame is null) return;
+        if (ContentFrame is null || _syncing) return;
         if (sender is RadioButton { Tag: string tag }) Navigate(tag);
     }
 
@@ -264,40 +319,59 @@ public partial class DashboardView : UserControl
                 // applications report with a filter applied.
                 if (argument.Equals("coverage", StringComparison.OrdinalIgnoreCase))
                 {
-                    NavigateTo("coverage");
+                    ShowFresh("coverage");
                     return;
                 }
                 if (argument.StartsWith("usage/", StringComparison.OrdinalIgnoreCase))
                 {
                     var days = int.TryParse(link["days"], out var d) ? d : 30;
-                    NavigateTo($"usage:{days}:{argument["usage/".Length..]}");
+                    ShowFresh($"usage:{days}:{argument["usage/".Length..]}");
                     return;
                 }
                 PendingLink = link;
-                NavigateTo("report:applications");
+                ShowFresh("report:applications");
                 return;
 
             // events/failures is a page of its own on the web, the same shape as
             // applications/coverage, so a link to it opens that page rather than the
-            // events list.
+            // events list -- with the link's window, reason and outcome.
             case "events" when link.Argument is { } events
                 && events.Equals("failures", StringComparison.OrdinalIgnoreCase):
-                NavigateTo("failures");
+                PendingLink = link;
+                ShowFresh("failures");
                 return;
 
             case "dashboard" or "devices" or "events":
                 PendingLink = link;
-                NavigateTo(link.Section);
+                ShowFresh(link.Section);
                 return;
 
             default:
                 // Every remaining section is a report, and they share their names with
                 // the web routes, so the section is the report id.
                 PendingLink = link;
-                NavigateTo("report:" + link.Section);
+                ShowFresh("report:" + link.Section);
                 return;
         }
     }
+
+    /// <summary>
+    /// Show a page built for the link just followed. Pages are cached and read their
+    /// link once, so a report already opened unfiltered would otherwise come back
+    /// unfiltered and leave the link waiting for whichever page loaded next.
+    /// </summary>
+    private void ShowFresh(string tag)
+    {
+        _pages.Remove(tag);
+        Navigate(tag);
+        SyncChecked();
+    }
+
+    /// <summary>
+    /// Follow a link from inside the dashboard -- a widget, a bar, a chip -- to the
+    /// view it names, filtered as it says.
+    /// </summary>
+    public static void Follow(DependencyObject from, DeepLink link) => Containing(from)?.OpenDeepLink(link);
 
     /// <summary>The link a page about to be shown should apply, if any.</summary>
     public static DeepLink? PendingLink { get; set; }
