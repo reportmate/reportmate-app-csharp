@@ -15,6 +15,9 @@ namespace ReportMate.App.Views.Device.Tabs;
 public sealed class EventsTab : DeviceTab
 {
     public override string Id => "events";
+
+    // Events are the same shape from either platform.
+    protected override string[] MacModules => [];
     public override string Label => "Events";
     public override string Glyph => "";
     public override Accent Accent => Accent.Mono;
@@ -46,7 +49,9 @@ public sealed class EventsTab : DeviceTab
         if (events.Count == 0)
         {
             page.Children.Add(Ui.TabHeader("Reporting Events", "Device activity and event monitoring", Glyph, Accent));
-            page.Children.Add(Ui.Card(Ui.EmptyState("No events have been recorded for this device yet. Each collection run writes its events to the local cache.", "")));
+            page.Children.Add(Ui.Card(Ui.EmptyState(s.IsRemote
+                ? "No events have been recorded for this device yet."
+                : "No events have been recorded for this device yet. Each collection run writes its events to the local cache.", "")));
             return page;
         }
 

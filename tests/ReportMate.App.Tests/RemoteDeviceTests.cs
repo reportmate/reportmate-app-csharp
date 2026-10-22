@@ -100,6 +100,30 @@ public class RemoteDeviceTests
     }
 
     [Fact]
+    public void EachModuleIsKeptAsSentForAMacsTabs()
+    {
+        var mac = Device.Replace("\"platform\":\"Windows\"", "\"platform\":\"macOS\"");
+        var s = RemoteDevice.FromApi("SAMPLE1", JsonDocument.Parse(mac).RootElement);
+        Assert.True(s.IsRemoteMac);
+        Assert.Equal("Sample Desktop", s.RawModules["inventory"].GetProperty("deviceName").GetString());
+        // A module stored as a one-element list is kept as the module itself.
+        Assert.Equal(JsonValueKind.Object, s.RawModules["system"].ValueKind);
+        Assert.False(Snapshot().IsRemoteMac);
+    }
+
+    [Fact]
+    public async Task TheRunLogAndLogRootsAreReadOnRequest()
+    {
+        var asked = new List<string>();
+        var s = RemoteDevice.FromApi("SAMPLE1", JsonDocument.Parse(Device).RootElement, null,
+            (tool, _) => { asked.Add(tool); return Task.FromResult<LogRoot?>(new LogRoot { Tool = tool }); },
+            _ => Task.FromResult<string?>("run log"));
+        Assert.Equal("run log", await s.FetchRunLog!(default));
+        Assert.Equal("installs", (await s.FetchLogRoot!("installs", default))!.Tool);
+        Assert.Equal(["installs"], asked);
+    }
+
+    [Fact]
     public void ThisMachinesReportIsNotRemote()
     {
         var local = new DeviceSnapshot();

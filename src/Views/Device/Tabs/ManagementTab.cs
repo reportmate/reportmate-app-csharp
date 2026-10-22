@@ -54,6 +54,27 @@ public sealed class ManagementTab : DeviceTab
         Invalidate();
     }
 
+    /// <summary>
+    /// A Mac's management report: the log viewer, whose roots are the same shape on
+    /// both platforms, then the rest of the module as the Mac sent it.
+    /// </summary>
+    protected override UIElement BuildMac(DeviceSnapshot s)
+    {
+        if (!ReferenceEquals(_snapshot, s)) { _fetchedTools.Clear(); _fetchingTools.Clear(); }
+        _snapshot = s;
+        var page = new StackPanel();
+        page.Children.Add(Ui.TabHeader("Device Management Service", "Enrollment, Policies, and Identity Status", Glyph, Accent));
+        if (s.Management?.Logs is { Roots.Count: > 0 } logs)
+        {
+            var host = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 0, 0, 16) };
+            void Render() => host.Content = LogsCard(logs, Render);
+            Render();
+            page.Children.Add(host);
+        }
+        AddMacModules(page, s);
+        return page;
+    }
+
     protected override UIElement Build(DeviceSnapshot s)
     {
         if (!s.HasModule("management") || s.Management is null) return ModuleMissing("management", s);

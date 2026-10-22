@@ -182,6 +182,29 @@ These are the link parameters the reports read. Multiple values are comma-separa
 | `network` | `connection=wired\|wifi`, `signal=weak` (under 25%), `quality=poor`, `vpn=1` |
 | `peripherals` | `kind=printers\|displays`, `room=<room>` |
 
+## Device pages
+
+Every device has its own page, with the same eleven tabs as the web and Mac apps:
+Info, Installs, Applications, System, Management, Identity, Hardware, Peripherals,
+Security, Network and Events. This machine's page reads the runner's local cache.
+Any other device is read from the API:
+
+- `GET /api/v1/device/{serial}` for every module.
+- `/events` for its history.
+- `/logs/{tool}` for the Management tab's log viewer.
+- `/installs/log` for the run log, on request.
+
+Each device keeps its own page, so going back to one shows what it had at once and
+refreshes it in the background. Search, the device list, report rows, New Clients,
+Recent Events and the dashboard cards all open device pages, and so does any
+`/device/<serial>` link. `?tab=management&tool=<tool>&level=error` opens the log
+viewer on that tool and level.
+
+A fleet Mac reports in the Mac client's module shapes, which this app's module
+classes, the Windows client's, read only in part. Its tabs therefore show every value
+the Mac sent, module by module, instead of a Windows layout with gaps. The Management
+tab's log viewer and the Events tab are the same on both platforms and draw as usual.
+
 ## Links
 
 `reportmate://` links open a view directly, and are the web routes with the

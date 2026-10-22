@@ -54,6 +54,23 @@ public sealed class DeviceSnapshot
     /// </summary>
     public Func<string, CancellationToken, Task<LogRoot?>>? FetchLogRoot { get; init; }
 
+    /// <summary>
+    /// Reads the installs module's run log, which the device endpoint leaves out for
+    /// its size. Null for this machine, whose cache carries it.
+    /// </summary>
+    public Func<CancellationToken, Task<string?>>? FetchRunLog { get; init; }
+
+    /// <summary>
+    /// Each module as the API sent it. A Mac reports in the Mac client's shapes,
+    /// which the Windows client's module classes only partly read, so a Mac's tabs
+    /// show these as they arrived rather than a Windows layout with gaps.
+    /// </summary>
+    public IReadOnlyDictionary<string, System.Text.Json.JsonElement> RawModules { get; init; } =
+        new Dictionary<string, System.Text.Json.JsonElement>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A fleet Mac, whose modules the Windows classes do not fully describe.</summary>
+    public bool IsRemoteMac => IsRemote && (Platform ?? "").Contains("mac", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Directory the newest run wrote to, or null when nothing has ever run.</summary>
     public string? NewestRunDirectory { get; init; }
 

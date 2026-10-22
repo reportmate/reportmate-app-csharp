@@ -65,13 +65,15 @@ public static class RemoteDevice
     /// <param name="response">The body of <c>GET /api/v1/device/{serial}</c>.</param>
     /// <param name="events">The body of <c>GET /api/v1/device/{serial}/events</c>, if read.</param>
     public static DeviceSnapshot FromApi(string serial, JsonElement response, JsonElement? events = null,
-        Func<string, CancellationToken, Task<LogRoot?>>? fetchLogRoot = null)
+        Func<string, CancellationToken, Task<LogRoot?>>? fetchLogRoot = null,
+        Func<CancellationToken, Task<string?>>? fetchRunLog = null)
     {
         var device = Prop(response, "device") ?? response;
         var modules = Prop(device, "modules") ?? default;
         var lastSeen = Date(device, "lastSeen");
         var collectedAt = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         var errors = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var raws = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
 
         T? Module<T>(string id) where T : class
         {
@@ -79,6 +81,7 @@ public static class RemoteDevice
             // A module stored as a one-element list is the same module.
             if (raw.ValueKind == JsonValueKind.Array) raw = raw.EnumerateArray().FirstOrDefault();
             if (raw.ValueKind != JsonValueKind.Object) return null;
+            raws[id] = raw.Clone();
             try
             {
                 var data = raw.Deserialize<T>(JsonOptions);
@@ -104,6 +107,7 @@ public static class RemoteDevice
             LastSeen = lastSeen,
             Archived = Prop(device, "archived") is { ValueKind: JsonValueKind.True },
             FetchLogRoot = fetchLogRoot,
+            FetchRunLog = fetchRunLog,
             Metadata = new EventMetadata
             {
                 SerialNumber = Str(device, "serialNumber") ?? serial,
@@ -125,6 +129,7 @@ public static class RemoteDevice
             Events = events is { } e ? Events(e) : [],
             ModuleCollectedAt = collectedAt,
             ModuleErrors = errors,
+            RawModules = raws,
         };
     }
 

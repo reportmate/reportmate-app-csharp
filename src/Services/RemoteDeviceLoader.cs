@@ -41,7 +41,24 @@ public static class RemoteDeviceLoader
         var outcome = await deviceRead;
         await eventsRead;
         if (device is not { } d) return (null, error ?? outcome.Error ?? "The device could not be read.");
-        return (RemoteDevice.FromApi(serial, d, events, (tool, t) => LogRootAsync(serial, tool, t)), null);
+        return (RemoteDevice.FromApi(serial, d, events,
+            (tool, t) => LogRootAsync(serial, tool, t),
+            t => RunLogAsync(serial, t)), null);
+    }
+
+    /// <summary>The installs module's run log, for the Installs tab.</summary>
+    public static async Task<string?> RunLogAsync(string serial, CancellationToken ct)
+    {
+        string? log = null;
+        await ReportQueue.RunAsync(async t =>
+        {
+            var r = await FleetApiClient.Instance.GetRawAsync($"/api/v1/device/{Uri.EscapeDataString(serial)}/installs/log", t);
+            if (!r.Ok) return new FetchOutcome(r.Detail ?? "");
+            using var doc = r.Data!;
+            if (doc.RootElement.TryGetProperty("runLog", out var v) && v.ValueKind == JsonValueKind.String) log = v.GetString();
+            return FetchOutcome.Success;
+        }, ReportQueue.DefaultTimeout, ct);
+        return log;
     }
 
     /// <summary>One tool's log root with its tails, for the Management tab's viewer.</summary>

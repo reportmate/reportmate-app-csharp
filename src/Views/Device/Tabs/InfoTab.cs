@@ -9,6 +9,8 @@ namespace ReportMate.App.Views.Device.Tabs;
 public sealed class InfoTab : DeviceTab
 {
     public override string Id => "info";
+
+    protected override string[] MacModules => ["inventory", "system", "hardware"];
     public override string Label => "Info";
     public override string Glyph => "";
     public override Accent Accent => Accent.Mono;
