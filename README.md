@@ -94,14 +94,72 @@ pipeline, which fetches a release from here and repacks it.
 The per-device page reads `C:\ProgramData\ManagedReports\cache` and needs no
 network. Every fleet page needs the API.
 
+The fleet pages sign in with Entra by default, and nothing secret is stored for
+it. The app mints a token with `az account get-access-token --resource <audience>`
+from the operator's own `az login`, keeps it in memory only, and sends it as
+`Authorization: Bearer`. The audience is one of these:
+
+- `OidcAudience` in the registry (any layer) or `REPORTMATE_OIDC_AUDIENCE`: an
+  `api://` URI or an application ID.
+- The audience the API advertises at `/api/v1/auth/config`. It is asked for only when
+  the API address was set by an administrator (the runner's `HKLM\SOFTWARE\ReportMate`,
+  policy, or `REPORTMATE_URL`), only over https, and the answer is used only when it
+  is an `api://` URI. An address typed into Settings never discovers an audience.
+
+When Entra is not available, because the API has no OIDC, az is not installed or
+not signed in, or the API refuses the token, the app falls back to a read-scoped key
+(`ReadApiKey`, `REPORTMATE_API_KEY`) and then the shared client passphrase.
+
 The runner's own API key is an **ingest** credential: the API refuses it for
-reads. The application therefore uses a read-scoped key when one is configured
-and the shared client passphrase otherwise, and says a read credential is needed
-when it has neither, rather than sending one that is certain to be refused.
+reads, so it is never sent. With no way to read, the app says which setting is
+missing rather than sending a credential that is certain to be refused.
 
 Settings are read from `HKLM\SOFTWARE\ReportMate` (the runner's own
-configuration), then this application's own settings, then policy — so a policy
-still overrides everything and an edit made here still overrides the runner.
+configuration), then this application's own settings, then the environment, then
+policy, so a policy still overrides everything and an edit made here still overrides
+the runner.
+
+## Dashboard
+
+The dashboard follows the layout and cards shared with the web and Mac apps:
+
+| Content width | Layout |
+|---|---|
+| under 860 | one column, insight cards two across at the bottom |
+| 860 to 1,419 | status and activity 30/70, insight cards two across below |
+| 1,420 to 1,939 | three columns 1/1/2, cards 1 to 4 beside status, cards 5 to 12 four across below |
+| 1,940 and over | four columns 1/1/1/2, the cards dealt alternately into two insight columns |
+
+The twelve insight cards, in order: System Health, Security Posture, Management,
+Hardware, Install Health, Check-in Gaps, OS Currency, Software Risk, Certificates,
+Identity, App Usage, and Network & Peripherals. Each read is shared, so one
+`/security` read feeds Security Posture, Software Risk and Certificates. Reads run two
+at a time with one retry, and refresh every five minutes. The managed-items read is
+last and optional: if it fails, Install Health and Software Risk show their counts
+without the item lists.
+
+Every number, bar, legend row, chip and list item opens the report that owns it
+with that filter applied, and each card header opens its report unfiltered. The
+links are the web routes, so a click opens what the same link opens on the web or
+the Mac. A device row opens the device list narrowed to that serial, because the
+device page shows this machine only. A filtered report names its filters next to
+its count, with a button to show the whole report.
+
+These are the link parameters the reports read. Multiple values are comma-separated:
+
+| Report | Parameters |
+|---|---|
+| `devices` | `status`, `search`, `platform` |
+| `system` | `osVersion`, `uptime` (`lt1d`, `1-3d`, `3-7d`, `1-2w`, `2-4w`, `30d+`), `pending` (`up-to-date`, `1-5`, `6-10`, `10+`), `deferred=1`, `edition`, `os` (`unsupported`, `windows10`), `patch` (`behind`, `latest`) |
+| `security` | `encryption=off`, `firewall=off`, `antivirus=off`, `sip=off`, `secureBoot=off`, `threats=1`, `certs=expired\|expiring`, `cve=critical\|exploited`, `certSearch=<text>`, `certStatus=expiring\|expired` |
+| `management` | `provider`, `enrolled=0\|1`, `enrollmentType` |
+| `hardware` | `arch` (`Apple Silicon`, `Intel`, `ARM64`, `x64`), `storage=low`, `memory=le8`, `type=laptop\|desktop`, `processor` |
+| `installs` | `filter=errors\|warnings`, `item=<name>`, `stale=1` |
+| `events/failures` | `hours`, `reason`, `outcome` |
+| `identity` | `admins=extra`, `join=entra\|domain\|hybrid\|workgroup`, `usage=shared\|assigned` |
+| `applications` | `apps`, `publishers`, `versions`; `applications/usage/<app>?days=30` for one app |
+| `network` | `connection=wired\|wifi`, `signal=weak` (under 25%) |
+| `peripherals` | `kind=printers\|displays`, `room=<room>` |
 
 ## Links
 
@@ -112,6 +170,7 @@ scheme swapped:
 reportmate://dashboard
 reportmate://device/<serial>?tab=installs
 reportmate://applications/usage/<app>?days=30
+reportmate://management?provider=Unmanaged
 ```
 
 A bare `reportmate://` link cannot fall back on a machine with no handler, so the

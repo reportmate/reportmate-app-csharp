@@ -23,6 +23,9 @@
     <Compile Include="..\..\src\Views\Fleet\Management.cs" Link="Management.cs" />
     <Compile Include="..\..\src\Views\Fleet\Hardware.cs" Link="Hardware.cs" />
     <Compile Include="..\..\src\Views\Fleet\Insights.cs" Link="Insights.cs" />
+    <Compile Include="..\..\src\Views\Fleet\Insights.Cards.cs" Link="Insights.Cards.cs" />
+    <Compile Include="..\..\src\Views\Fleet\ReportFilters.cs" Link="ReportFilters.cs" />
+    <Compile Include="..\..\src\Services\EntraSignIn.cs" Link="EntraSignIn.cs" />
     <Compile Include="..\..\src\Views\Fleet\Network.cs" Link="Network.cs" />
     <Compile Include="..\..\src\Views\Fleet\InstallLabel.cs" Link="InstallLabel.cs" />
     <Compile Include="..\..\src\Views\Fleet\FailureReason.cs" Link="FailureReason.cs" />

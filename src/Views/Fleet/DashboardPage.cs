@@ -36,8 +36,8 @@ public sealed class DashboardPage : FleetPage
         var status = new StackPanel();
         Stack(status, StatusWidget(devices));
         Stack(status, Ui.Columns(2, 14,
-            CounterCard("Errors", Errors(data.InstallStats), Tone.Error),
-            CounterCard("Warnings", Warnings(data.InstallStats), Tone.Warning)));
+            CounterCard("Errors", Errors(data.InstallStats), Tone.Error, "errors"),
+            CounterCard("Warnings", Warnings(data.InstallStats), Tone.Warning, "warnings")));
         Stack(status, NewClientsWidget(devices));
 
         var activity = new StackPanel();
@@ -47,45 +47,41 @@ public sealed class DashboardPage : FleetPage
             OsVersionWidget(devices, "Windows"),
             OsVersionWidget(devices, "macOS")));
 
-        // The insight cards draw from the shared report model and redraw in place as
-        // each report lands, so the page is on screen before the slow reads finish.
-        var insights = Ui.CardGrid(340, 14);
-        insights.MaxColumns = 2;
-        // Each card is as tall as what it shows, not as tall as its row-mate.
-        insights.StretchRows = false;
-        var hosts = DashboardInsightsModel.Reports.ToDictionary(r => r, r =>
+        // The insight cards draw from the shared model and redraw in place as each
+        // read lands, so the page is on screen before the slow reads finish.
+        var model = DashboardInsightsModel.Shared;
+        model.SetDashboard(data);
+        var hosts = InsightWidgets.All.Select(card => new ContentControl
         {
-            var host = new ContentControl
-            {
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                VerticalContentAlignment = VerticalAlignment.Top,
-                Content = InsightWidgets.Build(r),
-            };
-            insights.Children.Add(host);
-            return host;
-        });
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Top,
+            Content = InsightWidgets.Build(card),
+            Tag = card,
+        }).ToList();
         WatchInsights(hosts);
 
-        var layout = new DashboardLayout(status, insights, activity) { Margin = new Thickness(0, 20, 0, 0) };
+        var layout = new DashboardLayout(status, hosts, activity) { Margin = new Thickness(0, 20, 0, 0) };
         page.Children.Add(layout);
-        _ = DashboardInsightsModel.Shared.LoadAsync();
+        _ = model.LoadAsync();
         return page;
     }
 
     private Action<string>? _insightsHandler;
 
     /// <summary>
-    /// Redraw a card when its report changes, for as long as this page is shown.
-    /// The model outlives the page, so the handler has to come off when the page
-    /// goes or every dashboard ever built would keep redrawing cards nobody sees.
+    /// Redraw the cards that read a source when it changes, for as long as this page
+    /// is shown. The model outlives the page, so the handler has to come off when the
+    /// page goes or every dashboard ever built would keep redrawing cards nobody sees.
     /// </summary>
-    private void WatchInsights(Dictionary<string, ContentControl> hosts)
+    private void WatchInsights(List<ContentControl> hosts)
     {
         var model = DashboardInsightsModel.Shared;
         if (_insightsHandler is not null) model.Changed -= _insightsHandler;
-        _insightsHandler = report =>
+        _insightsHandler = source =>
         {
-            if (hosts.TryGetValue(report, out var host)) host.Content = InsightWidgets.Build(report);
+            foreach (var host in hosts)
+                if (host.Tag is InsightCard card && card.Sources.Contains(source))
+                    host.Content = InsightWidgets.Build(card);
         };
         model.Changed += _insightsHandler;
     }
@@ -118,13 +114,13 @@ public sealed class DashboardPage : FleetPage
         int Count(DeviceLiveness l) => buckets.TryGetValue(l, out var n) ? n : 0;
 
         var body = new StackPanel();
-        body.Children.Add(BigNumber(devices.Count, "devices total"));
-        body.Children.Add(Charts.Bar("Active", Count(DeviceLiveness.Active), devices.Count, Tone.Success));
-        body.Children.Add(Charts.Bar("Stale", Count(DeviceLiveness.Stale), devices.Count, Tone.Warning));
-        body.Children.Add(Charts.Bar("Missing", Count(DeviceLiveness.Missing), devices.Count, Tone.Error));
+        body.Children.Add(Linked(BigNumber(devices.Count, "devices total"), To("devices")));
+        body.Children.Add(Linked(Charts.Bar("Active", Count(DeviceLiveness.Active), devices.Count, Tone.Success), To("devices", ("status", "active"))));
+        body.Children.Add(Linked(Charts.Bar("Stale", Count(DeviceLiveness.Stale), devices.Count, Tone.Warning), To("devices", ("status", "stale"))));
+        body.Children.Add(Linked(Charts.Bar("Missing", Count(DeviceLiveness.Missing), devices.Count, Tone.Error), To("devices", ("status", "missing"))));
         if (Count(DeviceLiveness.Archived) > 0)
             body.Children.Add(Charts.Bar("Archived", Count(DeviceLiveness.Archived), devices.Count, Tone.Neutral));
-        return Ui.StatBlock("Fleet Status", "Seen in the last 24 hours", "", Accent.Green, Pad(body));
+        return Linkable.LinkHeader(Ui.StatBlock("Fleet Status", "Seen in the last 24 hours", "", Accent.Green, Pad(body)), To("devices"));
     }
 
     /// <summary>
@@ -147,7 +143,7 @@ public sealed class DashboardPage : FleetPage
         _ => (s.TotalWarningItems, s.DevicesWithWarnings),
     };
 
-    private static UIElement CounterCard(string title, (int Items, int Devices) counts, Tone tone)
+    private static UIElement CounterCard(string title, (int Items, int Devices) counts, Tone tone, string filter)
     {
         var (total, deviceCount) = counts;
         var body = new StackPanel();
@@ -156,7 +152,9 @@ public sealed class DashboardPage : FleetPage
         n.FontWeight = FontWeights.SemiBold;
         body.Children.Add(n);
         body.Children.Add(Ui.Caption(deviceCount == 1 ? "on 1 device" : $"across {deviceCount:N0} devices"));
-        return Ui.StatBlock(title, null, "", tone == Tone.Error ? Accent.Red : Accent.Yellow, Pad(body));
+        var link = To("installs", ("filter", filter));
+        return Linkable.LinkHeader(
+            Ui.StatBlock(title, null, "", tone == Tone.Error ? Accent.Red : Accent.Yellow, Pad(Linked(body, link))), link);
     }
 
     /// <summary>Devices that first reported recently, the web's NewClientsWidget.</summary>
@@ -169,8 +167,8 @@ public sealed class DashboardPage : FleetPage
             .ToList();
 
         if (recent.Count == 0)
-            return Ui.StatBlock("New Clients", "Recently enrolled", "", Accent.Indigo,
-                Pad(Ui.EmptyState("No devices have first reported recently.")));
+            return Linkable.LinkHeader(Ui.StatBlock("New Clients", "Recently enrolled", "", Accent.Indigo,
+                Pad(Ui.EmptyState("No devices have first reported recently."))), To("devices"));
 
         var body = new StackPanel();
         foreach (var d in recent)
@@ -184,23 +182,22 @@ public sealed class DashboardPage : FleetPage
             var when = Ui.Caption(Relative(d.CreatedAt));
             Grid.SetColumn(when, 1);
             row.Children.Add(when);
-            row.Margin = new Thickness(0, 0, 0, 8);
-            body.Children.Add(row);
+            body.Children.Add(Linked(row, DeviceLink(d.SerialNumber)));
         }
-        return Ui.StatBlock("New Clients", "Recently enrolled", "", Accent.Indigo, Pad(body));
+        return Linkable.LinkHeader(Ui.StatBlock("New Clients", "Recently enrolled", "", Accent.Indigo, Pad(body)), To("devices"));
     }
 
     /// <summary>The web's RecentEventsTable.</summary>
     private static UIElement RecentEventsWidget(List<FleetEvent> events)
     {
         if (events.Count == 0)
-            return Ui.StatBlock("Recent Events", "Across the fleet", "", Accent.Cyan,
-                Pad(Ui.EmptyState("No events have been reported.")));
+            return Linkable.LinkHeader(Ui.StatBlock("Recent Events", "Across the fleet", "", Accent.Cyan,
+                Pad(Ui.EmptyState("No events have been reported."))), To("events"));
 
         var body = new StackPanel();
         foreach (var e in events.OrderByDescending(e => e.When ?? DateTime.MinValue).Take(12))
         {
-            var row = new Grid { Margin = new Thickness(0, 0, 0, 9) };
+            var row = new Grid();
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -225,9 +222,13 @@ public sealed class DashboardPage : FleetPage
             var meta = Ui.Caption($"{e.DeviceName ?? e.SerialNumber ?? ""}  ·  {Relative(e.When)}");
             Grid.SetColumn(meta, 2);
             row.Children.Add(meta);
-            body.Children.Add(row);
+            // An event opens the device it came from; one with no serial opens the
+            // events list, filtered to its kind.
+            body.Children.Add(Linked(row, string.IsNullOrWhiteSpace(e.SerialNumber)
+                ? To("events", ("filter", kind))
+                : DeviceLink(e.SerialNumber)));
         }
-        return Ui.StatBlock("Recent Events", "Across the fleet", "", Accent.Cyan, Pad(body));
+        return Linkable.LinkHeader(Ui.StatBlock("Recent Events", "Across the fleet", "", Accent.Cyan, Pad(body)), To("events"));
     }
 
     /// <summary>Windows / macOS split, the web's PlatformDistributionWidget.</summary>
@@ -242,17 +243,18 @@ public sealed class DashboardPage : FleetPage
         var body = new StackPanel();
         var total = devices.Count;
         foreach (var (name, count) in groups)
-            body.Children.Add(Charts.Bar(name, count, total, name == "Windows" ? Tone.Info : Tone.Neutral));
+            body.Children.Add(Linked(Charts.Bar(name, count, total, name == "Windows" ? Tone.Info : Tone.Neutral),
+                name == "Unknown" ? To("devices") : To("devices", ("platform", name))));
 
-        return Ui.StatBlock("Platforms", "Devices by operating system", "", Accent.Purple, Pad(body));
+        return Linkable.LinkHeader(Ui.StatBlock("Platforms", "Devices by operating system", "", Accent.Purple, Pad(body)), To("devices"));
     }
 
     private static UIElement OsVersionWidget(List<FleetDevice> devices, string platform)
     {
         var matching = devices.Where(d => NormalizePlatform(d) == platform).ToList();
         if (matching.Count == 0)
-            return Ui.StatBlock($"{platform} Versions", null, "", Accent.Gray,
-                Pad(Ui.EmptyState($"No {platform} devices are reporting.")));
+            return Linkable.LinkHeader(Ui.StatBlock($"{platform} Versions", null, "", Accent.Gray,
+                Pad(Ui.EmptyState($"No {platform} devices are reporting."))), To("system"));
 
         var groups = matching
             .GroupBy(OsLabel)
@@ -263,12 +265,39 @@ public sealed class DashboardPage : FleetPage
 
         var body = new StackPanel();
         foreach (var (name, count) in groups)
-            body.Children.Add(Charts.Bar(name, count, matching.Count, Tone.Info));
+            body.Children.Add(Linked(Charts.Bar(name, count, matching.Count, Tone.Info),
+                name == "Unknown" ? To("system") : To("system", ("osVersion", name))));
 
-        return Ui.StatBlock($"{platform} Versions", $"{matching.Count:N0} devices", "", Accent.Teal, Pad(body));
+        return Linkable.LinkHeader(Ui.StatBlock($"{platform} Versions", $"{matching.Count:N0} devices", "", Accent.Teal, Pad(body)), To("system"));
     }
 
     // ── Small parts ──────────────────────────────────────────────────────
+
+    private static DeepLink To(string section, params (string, string?)[] filters) => DeepLink.For(section, null, filters);
+
+    /// <summary>
+    /// Where a device row goes. The device page renders this machine from its local
+    /// cache and cannot render another one, so a fleet device opens the device list
+    /// narrowed to its serial -- the same place the header search lands.
+    /// </summary>
+    private static DeepLink DeviceLink(string? serial) =>
+        string.IsNullOrWhiteSpace(serial) ? To("devices") : To("devices", ("search", serial));
+
+    /// <summary>A widget row that follows a link, inset so its hover tint has room.</summary>
+    private static UIElement Linked(UIElement content, DeepLink link)
+    {
+        // The bars carry their own bottom spacing; move it outside the tint.
+        var gap = 0.0;
+        if (content is FrameworkElement fe && fe.Margin.Bottom > 0)
+        {
+            gap = fe.Margin.Bottom;
+            fe.Margin = new Thickness(fe.Margin.Left, fe.Margin.Top, fe.Margin.Right, 0);
+        }
+        var wrap = Linkable.Wrap(content, link);
+        wrap.Padding = new Thickness(6, 3, 6, 3);
+        wrap.Margin = new Thickness(-6, 0, -6, Math.Max(gap - 6, 3));
+        return wrap;
+    }
 
     private static UIElement BigNumber(int value, string caption)
     {
@@ -325,58 +354,78 @@ public sealed class DashboardPage : FleetPage
 }
 
 /// <summary>
-/// The dashboard's three groups -- status, insights, activity -- laid out for the
+/// The dashboard's groups -- status, the insight cards, activity -- laid out for the
 /// width the window actually has, and re-laid as it is resized.
 /// </summary>
 /// <remarks>
-/// Wide: three columns side by side, so a desktop-sized window shows everything
-/// without scrolling instead of a laptop-width column with margins. Medium: status
-/// and activity side by side, the insight cards below in two columns. Narrow: one
-/// column. Decided on the layout's own width rather than the window's, so a host
-/// that embeds the dashboard in part of a window gets the layout that fits it.
+/// The layout is the shared dashboard spec's, so the web, the Mac and this app put
+/// the same card in the same place at the same width:
+/// <list type="bullet">
+/// <item>Wide (27-inch class): four columns 1/1/1/2 -- status, two insight columns
+/// with the cards dealt alternately so both grow evenly, then activity.</item>
+/// <item>Desktop: three columns 1/1/2 with cards 1-4 in the insight column, and
+/// cards 5-12 four across underneath.</item>
+/// <item>Medium: status and activity 30/70, every card two across below.</item>
+/// <item>Narrow: one column, every card two across at the bottom.</item>
+/// </list>
+/// Decided on the layout's own width rather than the window's, so a host that embeds
+/// the dashboard in part of a window gets the layout that fits it. Cards keep their
+/// own height; nothing is stretched to match a neighbour.
 /// </remarks>
 public sealed class DashboardLayout : Grid
 {
     /// <summary>
-    /// The content width at which three columns fit, around 1500 px of window once
-    /// the page padding and scroll bar are taken off.
+    /// Content width for four columns: a window of about 2,000 effective pixels, which
+    /// is a 27-inch display at 125% scaling, once the page padding and scroll bar are
+    /// taken off.
     /// </summary>
-    public const double WideWidth = 1420;
+    public const double WideWidth = 1940;
+
+    /// <summary>Content width for three columns, around 1,500 px of window.</summary>
+    public const double DesktopWidth = 1420;
 
     /// <summary>Below this, status and activity are too cramped side by side.</summary>
     public const double NarrowWidth = 860;
 
+    /// <summary>Insight cards 1-4 stay beside status in the desktop layout; the rest go below.</summary>
+    public const int DesktopColumnCards = 4;
+
     private const double Gap = 18;
 
-    private enum Mode { None, Narrow, Medium, Wide }
+    public enum Mode { None, Narrow, Medium, Desktop, Wide }
 
     private readonly FrameworkElement _status;
-    private readonly Shared.UniformCardPanel _insights;
+    private readonly IReadOnlyList<FrameworkElement> _cards;
     private readonly FrameworkElement _activity;
     private Mode _mode = Mode.None;
 
-    public DashboardLayout(FrameworkElement status, Shared.UniformCardPanel insights, FrameworkElement activity)
+    public DashboardLayout(FrameworkElement status, IReadOnlyList<FrameworkElement> cards, FrameworkElement activity)
     {
         _status = status;
-        _insights = insights;
+        _cards = cards;
         _activity = activity;
-        Children.Add(status);
-        Children.Add(insights);
-        Children.Add(activity);
         Apply(Mode.Medium);
         SizeChanged += (_, e) => Apply(ModeFor(e.NewSize.Width));
     }
 
-    private static Mode ModeFor(double width) =>
-        width >= WideWidth ? Mode.Wide : width >= NarrowWidth ? Mode.Medium : Mode.Narrow;
+    public static Mode ModeFor(double width) =>
+        width >= WideWidth ? Mode.Wide
+        : width >= DesktopWidth ? Mode.Desktop
+        : width >= NarrowWidth ? Mode.Medium
+        : Mode.Narrow;
 
     private void Apply(Mode mode)
     {
         if (mode == _mode) return;
         _mode = mode;
+
+        // Take every element out of whatever held it before re-placing it.
+        Children.Clear();
+        foreach (var card in _cards)
+            if (card.Parent is Panel holder) holder.Children.Remove(card);
         ColumnDefinitions.Clear();
         RowDefinitions.Clear();
-        foreach (var child in new[] { _status, (FrameworkElement)_insights, _activity })
+        foreach (var child in new[] { _status, _activity })
         {
             SetRow(child, 0);
             SetColumn(child, 0);
@@ -387,38 +436,91 @@ public sealed class DashboardLayout : Grid
         switch (mode)
         {
             case Mode.Wide:
-                // Status and insights share one width; activity, whose event
+            {
+                // Insight columns share column 1's width; activity, whose event
                 // messages are the content that wants room, takes the rest.
-                AddColumns(1, 1, 2);
-                SetColumn(_insights, 2);
-                SetColumn(_activity, 4);
-                // One card per row: the column is the width of one card.
-                _insights.MaxColumns = 1;
+                AddColumns(1, 1, 1, 2);
+                var a = Column(_cards.Where((_, i) => i % 2 == 0));
+                var b = Column(_cards.Where((_, i) => i % 2 == 1));
+                Place(_status, 0, 0);
+                Place(a, 0, 2);
+                Place(b, 0, 4);
+                Place(_activity, 0, 6);
                 break;
+            }
+
+            case Mode.Desktop:
+            {
+                AddColumns(1, 1, 2);
+                AddRows(2);
+                Place(_status, 0, 0);
+                Place(Column(_cards.Take(DesktopColumnCards)), 0, 2);
+                Place(_activity, 0, 4);
+                var below = Grid(_cards.Skip(DesktopColumnCards), 4);
+                below.Margin = new Thickness(0, Gap, 0, 0);
+                Place(below, 1, 0, span: 5);
+                break;
+            }
 
             case Mode.Medium:
+            {
                 AddColumns(3, 7);
-                RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                SetColumn(_activity, 2);
-                SetRow(_insights, 1);
-                SetColumnSpan(_insights, 3);
-                _insights.Margin = new Thickness(0, Gap, 0, 0);
-                _insights.MaxColumns = 2;
+                AddRows(2);
+                Place(_status, 0, 0);
+                Place(_activity, 0, 2);
+                var below = Grid(_cards, 2);
+                below.Margin = new Thickness(0, Gap, 0, 0);
+                Place(below, 1, 0, span: 3);
                 break;
+            }
 
             default:
-                RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-                SetRow(_activity, 1);
-                SetRow(_insights, 2);
+            {
+                AddRows(3);
+                Place(_status, 0, 0);
+                Place(_activity, 1, 0);
                 _activity.Margin = new Thickness(0, Gap, 0, 0);
-                _insights.Margin = new Thickness(0, Gap, 0, 0);
-                _insights.MaxColumns = 2;
+                var below = Grid(_cards, 2);
+                below.Margin = new Thickness(0, Gap, 0, 0);
+                Place(below, 2, 0);
                 break;
+            }
         }
-        _insights.InvalidateMeasure();
+    }
+
+    private void Place(FrameworkElement child, int row, int column, int span = 1)
+    {
+        SetRow(child, row);
+        SetColumn(child, column);
+        SetColumnSpan(child, span);
+        Children.Add(child);
+    }
+
+    /// <summary>Cards stacked in one column, each as tall as what it shows.</summary>
+    private static StackPanel Column(IEnumerable<FrameworkElement> cards)
+    {
+        var column = new StackPanel();
+        foreach (var card in cards)
+        {
+            card.Margin = new Thickness(0, column.Children.Count == 0 ? 0 : 14, 0, 0);
+            column.Children.Add(card);
+        }
+        return column;
+    }
+
+    /// <summary>Cards in a grid of up to <paramref name="columns"/> across, rows not stretched.</summary>
+    private static Shared.UniformCardPanel Grid(IEnumerable<FrameworkElement> cards, int columns)
+    {
+        var grid = Ui.CardGrid(300, 14);
+        grid.MaxColumns = columns;
+        grid.StretchRows = false;
+        grid.Balanced = false;
+        foreach (var card in cards)
+        {
+            card.Margin = new Thickness(0);
+            grid.Children.Add(card);
+        }
+        return grid;
     }
 
     private void AddColumns(params double[] weights)
@@ -428,5 +530,10 @@ public sealed class DashboardLayout : Grid
             if (i > 0) ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Gap) });
             ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(weights[i], GridUnitType.Star) });
         }
+    }
+
+    private void AddRows(int count)
+    {
+        for (var i = 0; i < count; i++) RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
     }
 }

@@ -122,6 +122,18 @@ public sealed class ReportPage : FleetPage
             loaded = loaded.Where(r => PlatformFilter.Includes(PlatformField.Read(r))).ToList();
 
         var rows = ApplyLinkFilters(spec, loaded);
+
+        // Agents that have stopped running are listed by the installs filters
+        // endpoint, not marked on the rows, so that link needs one more read.
+        if (spec.Module == "installs" && Filter("stale") == "1")
+        {
+            var filters = await FleetApiClient.Instance.GetRawAsync("/api/v1/installs/filters");
+            if (filters.Ok)
+            {
+                var stale = Insights.StaleAgents(filters.Data!.RootElement).Serials;
+                rows = rows.Where(r => stale.Contains(Insights.Str(r, "serialNumber"))).ToList();
+            }
+        }
         var capped = spec.Limit is { } cap && loaded.Count >= cap;
         var narrowed = rows.Count != loaded.Count;
 
@@ -133,12 +145,12 @@ public sealed class ReportPage : FleetPage
         // statement about everything.
         var deviceCount = capped ? DistinctDevices(rows) : 0;
 
-        page.Children.Add(Ui.TabHeader(_area.Title, _area.Subtitle, "", _area.Accent,
-            Ui.Caption(narrowed
-                ? $"{rows.Count:N0} of {loaded.Count:N0} {spec.RowNoun}"
-                : capped
-                    ? $"first {rows.Count:N0} {spec.RowNoun}, from {deviceCount:N0} devices"
-                    : $"{rows.Count:N0} {spec.RowNoun}")));
+        var count = Ui.Caption(narrowed
+            ? $"{rows.Count:N0} of {loaded.Count:N0} {spec.RowNoun}"
+            : capped
+                ? $"first {rows.Count:N0} {spec.RowNoun}, from {deviceCount:N0} devices"
+                : $"{rows.Count:N0} {spec.RowNoun}");
+        page.Children.Add(Ui.TabHeader(_area.Title, _area.Subtitle, "", _area.Accent, WithActiveFilters(count)));
 
         if (rows.Count == 0)
         {
@@ -147,6 +159,11 @@ public sealed class ReportPage : FleetPage
                 : $"No {_area.Title.ToLowerInvariant()} data has been reported.")));
             return page;
         }
+
+        // A certificate link opens the security report on the certificates it names,
+        // which the per-device rows cannot show, so they get a table of their own.
+        if (spec.Module == "security" && (Filter("certSearch") is not null || Filter("certStatus") is not null))
+            page.Children.Add(await CertificatesAsync(Filter("certSearch"), Filter("certStatus")));
 
         var distributions = BuildDistributions(spec, rows,
             capped ? $"{deviceCount:N0} devices" : null);
@@ -161,14 +178,49 @@ public sealed class ReportPage : FleetPage
     }
 
     /// <summary>
+    /// The row count, and when a link narrowed the report, what it narrowed by and a
+    /// way back to the whole report -- a dashboard click lands here filtered, and
+    /// nothing else on the page would say so.
+    /// </summary>
+    private UIElement WithActiveFilters(UIElement count)
+    {
+        var active = Link?.Query.AllKeys
+            .Where(k => !string.IsNullOrEmpty(k) && !string.IsNullOrEmpty(Link.Query[k]))
+            .Select(k => $"{k}: {Link.Query[k]}")
+            .ToList() ?? [];
+        if (active.Count == 0) return count;
+
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        var pill = Ui.Pill(string.Join(" · ", active), Tone.Info);
+        pill.Margin = new Thickness(0, 0, 10, 0);
+        pill.VerticalAlignment = VerticalAlignment.Center;
+        panel.Children.Add(pill);
+        if (count is FrameworkElement fe) fe.VerticalAlignment = VerticalAlignment.Center;
+        panel.Children.Add(count);
+        var all = Ui.IconButton("\uE894", "Show all", (_, _) => DashboardView.Follow(this, DeepLink.For(_area.Id)));
+        all.Margin = new Thickness(10, 0, 0, 0);
+        panel.Children.Add(all);
+        return panel;
+    }
+
+    /// <summary>
     /// Narrow the rows by whatever the arriving link asked for. The web report pages
     /// carry their filters in the query, so a link copied from one reopens the same
     /// subset here rather than the whole report.
     /// </summary>
     private List<JsonElement> ApplyLinkFilters(ReportSpec spec, List<JsonElement> rows)
     {
+        // The dashboard's rules first: a card's count and the rows its link opens
+        // have to be counted the same way.
+        var population = rows;
+        var ruled = ReportFilters.Keys(spec.Module);
+        foreach (var key in ruled)
+            if (Filter(key) is { } value)
+                rows = ReportFilters.Apply(spec.Module, key, value, population, rows) ?? rows;
+
         foreach (var filter in spec.Filters)
         {
+            if (ruled.Contains(filter.Key, StringComparer.OrdinalIgnoreCase)) continue;
             var raw = Filter(filter.Key);
             if (raw is null) continue;
 
@@ -312,6 +364,56 @@ public sealed class ReportPage : FleetPage
             .WithQuery(query)
             .Build();
         table.Margin = new Thickness(0, 6, 0, 0);
+        return table;
+    }
+
+    /// <summary>
+    /// The fleet certificate search, <c>/api/v1/security/certificates</c>, for the
+    /// <c>certSearch</c> and <c>certStatus</c> link parameters.
+    /// </summary>
+    private static async Task<UIElement> CertificatesAsync(string? search, string? status)
+    {
+        var query = "/api/v1/security/certificates?limit=2000"
+            + (string.IsNullOrWhiteSpace(search) ? "" : "&search=" + Uri.EscapeDataString(search))
+            + (status is "expired" or "expiring" or "valid" ? "&status=" + status : "");
+        var result = await FleetApiClient.Instance.GetRawAsync(query);
+        var title = string.IsNullOrWhiteSpace(search) ? "Certificates" : $"Certificates matching \u201c{search}\u201d";
+        if (!result.Ok)
+        {
+            var failed = Ui.StatBlock(title, result.Detail ?? "The certificate search could not be loaded.", "", Accent.Red,
+                new Border());
+            failed.Margin = new Thickness(0, 20, 0, 0);
+            return failed;
+        }
+
+        var root = result.Data!.RootElement;
+        var certs = root.ValueKind == JsonValueKind.Array ? root.EnumerateArray().ToList() : [];
+        certs = certs.Where(c => PlatformFilter.Includes(Insights.Str(c, "platform"))).ToList();
+        var data = certs
+            .OrderBy(c => Insights.Number(c, "daysUntilExpiry") ?? double.MaxValue)
+            .Select(c => new ReportRow(new Dictionary<string, string>
+            {
+                ["Common name"] = Insights.Str(c, "commonName"),
+                ["Device"] = Insights.Str(c, "deviceName"),
+                ["Serial"] = Insights.Str(c, "serialNumber"),
+                ["Expires in"] = Insights.Number(c, "daysUntilExpiry") is { } d ? $"{d:0} days" : "",
+                ["Status"] = Insights.Str(c, "status"),
+                ["Issuer"] = Insights.Str(c, "issuer"),
+                ["Store"] = Insights.Str(c, "storeName"),
+            }))
+            .ToList();
+
+        var table = new FilteredTable<ReportRow>(title, "{0} of {1} certificates", data, (r, q) => r.Matches(q),
+            [
+                Col.Text("Common name", "[Common name]", star: true),
+                Col.Text("Device", "[Device]", 190),
+                Col.Text("Serial", "[Serial]", 150, mono: true),
+                Col.Text("Expires in", "[Expires in]", 110),
+                Col.Text("Status", "[Status]", 110),
+                Col.Text("Issuer", "[Issuer]", 220),
+                Col.Text("Store", "[Store]", 120),
+            ], "Search certificates...", "No certificates match").Build();
+        table.Margin = new Thickness(0, 20, 0, 0);
         return table;
     }
 

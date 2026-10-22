@@ -52,7 +52,7 @@ public sealed class DevicesPage : FleetPage
                  {
                      ("usage", Filter("usage")), ("catalog", Filter("catalog")),
                      ("area", Filter("area")), ("location", Filter("location")),
-                     ("fleet", Filter("fleet")),
+                     ("fleet", Filter("fleet")), ("platform", Filter("platform")),
                  })
         {
             if (value is null) continue;
@@ -205,6 +205,12 @@ public sealed class DevicesPage : FleetPage
     /// <summary>Match one of the inventory dimensions a link can narrow the list by.</summary>
     private static bool Matches(FleetDevice d, string key, string value)
     {
+        // The dashboard's platform bars link here with the name they show.
+        if (key == "platform")
+            return value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Any(v => Platform(d).Equals(v, StringComparison.OrdinalIgnoreCase)
+                          || (v.Equals("mac", StringComparison.OrdinalIgnoreCase) && Platform(d) == "macOS"));
+
         var actual = key switch
         {
             "usage" => d.Usage,

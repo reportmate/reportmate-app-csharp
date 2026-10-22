@@ -14,7 +14,7 @@ namespace ReportMate.App.Views.Fleet;
 /// (SecurityReportRow, ManagementReportRow, HardwareReportRow, SystemReportRow), so
 /// the two dashboards count the same fleet the same way.
 /// </remarks>
-public static class Insights
+public static partial class Insights
 {
     // ── Row reading ──────────────────────────────────────────────────────
 
@@ -77,7 +77,8 @@ public static class Insights
 
     // ── Security posture ─────────────────────────────────────────────────
 
-    public sealed record Compliance(string Label, int On, int Total)
+    /// <param name="Key">The security report's link parameter for this protection: <c>/security?&lt;key&gt;=off</c>.</param>
+    public sealed record Compliance(string Label, int On, int Total, string Key = "")
     {
         public double Fraction => Total == 0 ? 0 : (double)On / Total;
     }
@@ -95,29 +96,26 @@ public static class Insights
     {
         var list = new List<Compliance>
         {
-            new("Disk encryption", rows.Count(r => Boolish(r, "encryptionEnabled")), rows.Count),
-            new("Firewall", rows.Count(r => Boolish(r, "firewallEnabled")), rows.Count),
+            new("Disk encryption", rows.Count(r => Boolish(r, "encryptionEnabled")), rows.Count, "encryption"),
+            new("Firewall", rows.Count(r => Boolish(r, "firewallEnabled")), rows.Count, "firewall"),
         };
 
-        var protectors = rows.Where(r => IsWindows(r) || Boolish(r, "antivirusEnabled") || Str(r, "antivirusName").Length > 0).ToList();
+        var protectors = rows.Where(ReportsAntivirus).ToList();
         if (protectors.Count > 0)
-            list.Add(new("Antivirus protection", protectors.Count(r => Boolish(r, "antivirusEnabled")), protectors.Count));
+            list.Add(new("Antivirus protection", protectors.Count(r => Boolish(r, "antivirusEnabled")), protectors.Count, "antivirus"));
 
         var sip = rows.Where(r => !IsWindows(r)).Select(r => BoolishIfPresent(r, "sipEnabled")).Where(v => v is not null).ToList();
         if (sip.Count > 0)
-            list.Add(new("System Integrity Protection", sip.Count(v => v == true), sip.Count));
+            list.Add(new("System Integrity Protection", sip.Count(v => v == true), sip.Count, "sip"));
 
         var windows = rows.Where(IsWindows).ToList();
         if (windows.Count > 0)
-            list.Add(new("Secure Boot", windows.Count(r => Boolish(r, "secureBootEnabled")), windows.Count));
-
-        int Threats(JsonElement r) => (int)(Number(r, "activeThreatCount") ?? Number(r, "detectionCount") ?? 0);
-        int Expired(JsonElement r) => (int)(Number(r, "userExpiredCertCount") ?? Number(r, "expiredCertCount") ?? 0);
+            list.Add(new("Secure Boot", windows.Count(r => Boolish(r, "secureBootEnabled")), windows.Count, "secureBoot"));
 
         return new SecurityPosture(list,
-            rows.Count(r => Threats(r) > 0),
-            rows.Count(r => Expired(r) > 0),
-            rows.Count(r => Int(r, "criticalCveCount") > 0));
+            rows.Count(r => ActiveThreats(r) > 0),
+            rows.Count(r => ExpiredCerts(r) > 0),
+            rows.Count(r => CriticalCves(r) > 0));
     }
 
     // ── Management ───────────────────────────────────────────────────────
@@ -170,14 +168,21 @@ public static class Insights
             .ThenBy(f => f.Family, StringComparer.Ordinal)
             .ToList();
 
-        const double EightGb = 8d * 1024 * 1024 * 1024;
         return new HardwareSummary(
             rows.Count,
             families,
-            rows.Count(r => Hardware.StorageBytes(r) is { Total: > 0, Free: > 0 } s && (double)s.Free / s.Total < 0.1),
-            rows.Count(r => Hardware.MemoryBytes(r) is > 0 and <= EightGb),
+            rows.Count(IsLowStorage),
+            rows.Count(IsLowMemory),
             rows.Count(Hardware.IsLaptop));
     }
+
+    /// <summary>Under 10% of internal storage free: <c>/hardware?storage=low</c>.</summary>
+    public static bool IsLowStorage(JsonElement row) =>
+        Hardware.StorageBytes(row) is { Total: > 0, Free: > 0 } s && (double)s.Free / s.Total < 0.1;
+
+    /// <summary>8 GB of memory or less: <c>/hardware?memory=le8</c>.</summary>
+    public static bool IsLowMemory(JsonElement row) =>
+        Hardware.MemoryBytes(row) is > 0 and <= 8d * 1024 * 1024 * 1024;
 
     // ── System health ────────────────────────────────────────────────────
 
@@ -191,6 +196,27 @@ public static class Insights
         ("2-4 weeks", 1_209_600),
         ("30+ days", 2_592_000),
     ];
+
+    /// <summary>The link keys for <see cref="UptimeBuckets"/>, in the same order: <c>/system?uptime=</c>.</summary>
+    public static readonly IReadOnlyList<string> UptimeKeys = ["lt1d", "1-3d", "3-7d", "1-2w", "2-4w", "30d+"];
+
+    /// <summary>The uptime bucket's link key, or null when the row reports no uptime.</summary>
+    public static string? UptimeKey(JsonElement row) =>
+        UptimeBucket(UptimeSeconds(row)) is { } label
+            ? UptimeKeys[UptimeBuckets.Select(b => b.Label).ToList().IndexOf(label)]
+            : null;
+
+    /// <summary>The pending-updates bucket's link key: <c>up-to-date</c>, <c>1-5</c>, <c>6-10</c> or <c>10+</c>.</summary>
+    public static string PendingKey(JsonElement row) => Int(row, "pendingUpdatesCount") switch
+    {
+        <= 0 => "up-to-date",
+        <= 5 => "1-5",
+        <= 10 => "6-10",
+        _ => "10+",
+    };
+
+    /// <summary>The pending keys that mean "has pending updates", as one link value.</summary>
+    public const string AnyPending = "1-5,6-10,10+";
 
     public sealed record SystemSummary(IReadOnlyList<(string Label, int Count)> Uptime, int Pending, int Deferred);
 
