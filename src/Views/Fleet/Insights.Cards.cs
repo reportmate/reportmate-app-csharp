@@ -114,9 +114,18 @@ public static partial class Insights
     }
 
     /// <summary>
+    /// How many devices have to report a version before it counts as a track's
+    /// latest patch, so one Mac on a beta does not put the rest of its major behind.
+    /// Shared with the web and Mac dashboards.
+    /// </summary>
+    public const int LatestPatchMinDevices = 5;
+
+    /// <summary>
     /// What "latest" means for a fleet: for each macOS major, and each Windows build,
-    /// the highest version any device reports. Built once from the whole population,
-    /// so the card and the system report's <c>patch</c> and <c>os</c> filters agree.
+    /// the highest version at least <see cref="LatestPatchMinDevices"/> devices report.
+    /// A track where no version reaches that falls back to its highest version.
+    /// Built once from the whole population, so the card and the system report's
+    /// <c>patch</c> and <c>os</c> filters agree.
     /// </summary>
     public sealed class OsBaseline
     {
@@ -125,15 +134,25 @@ public static partial class Insights
 
         public OsBaseline(IEnumerable<JsonElement> rows)
         {
+            var seen = new Dictionary<string, Dictionary<Version, int>>(StringComparer.Ordinal);
             foreach (var row in rows)
             {
                 if (OsKey(row) is not { } key || OsPatchVersion(row) is not { } version) continue;
-                if (!_latest.TryGetValue(key.Track, out var best) || version > best) _latest[key.Track] = version;
+                if (!seen.TryGetValue(key.Track, out var versions)) seen[key.Track] = versions = new();
+                versions[version] = versions.GetValueOrDefault(version) + 1;
                 if (key.MacMajor is { } major && major > _newestMac) _newestMac = major;
+            }
+
+            foreach (var (track, versions) in seen)
+            {
+                var common = versions.Where(v => v.Value >= LatestPatchMinDevices).Select(v => v.Key).ToList();
+                _latest[track] = common.Count > 0 ? common.Max()! : versions.Keys.Max()!;
             }
         }
 
-        /// <summary>On a version below the highest seen for its macOS major or Windows build.</summary>
+        /// <summary>
+        /// Below its track's latest patch. A device above it -- the beta -- is not behind.
+        /// </summary>
         public bool IsBehind(JsonElement row) =>
             OsKey(row) is { } key && OsPatchVersion(row) is { } v
             && _latest.TryGetValue(key.Track, out var best) && v < best;

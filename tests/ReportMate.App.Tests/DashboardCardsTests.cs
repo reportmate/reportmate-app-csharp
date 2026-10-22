@@ -98,6 +98,21 @@ public class DashboardCardsTests
     }
 
     [Fact]
+    public void OneBetaMacDoesNotPutItsMajorBehind()
+    {
+        var fleet = Enumerable.Range(1, 5).Select(i => $$"""{"serialNumber":"SAMPLE{{i}}","platform":"macOS","osVersion":"15.6.1"}""")
+            .Append("""{"serialNumber":"SAMPLE6","platform":"macOS","osVersion":"15.7"}""")
+            .Append("""{"serialNumber":"SAMPLE7","platform":"macOS","osVersion":"15.5"}""");
+        var rows = Rows("[" + string.Join(",", fleet) + "]");
+
+        var c = Insights.OsCurrency(rows);
+        // 15.6.1 is on five devices and is the latest; the one 15.7 is ahead, not the bar.
+        Assert.Equal(1, c.Behind);
+        Assert.Equal(6, c.OnLatest);
+        Assert.Equal(["SAMPLE7"], Serials("system", "patch", "behind", rows));
+    }
+
+    [Fact]
     public void TheSystemReportHonoursTheOsCurrencyLinks()
     {
         Assert.Equal(["SAMPLE2", "SAMPLE5"], Serials("system", "patch", "behind", SystemRows));

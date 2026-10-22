@@ -432,7 +432,7 @@ public static class InsightWidgets
                 Figure(c.Accepted, "repaired", Tone.Info, Outcome("accepted"))));
             var caption = Ui.Caption(PlatformFilter.Current == PlatformScope.All
                 ? "In the last 24 hours"
-                : "In the last 24 hours, across both platforms: check-ins are not split by platform");
+                : "In the last 24 hours · All platforms: check-ins are not split by platform");
             caption.TextWrapping = TextWrapping.Wrap;
             caption.Margin = new Thickness(0, 4, 0, 0);
             body.Children.Add(caption);
@@ -596,7 +596,7 @@ public static class InsightWidgets
         }
         if (PlatformFilter.Current != PlatformScope.All)
         {
-            var caption = Ui.Caption("Across both platforms: usage is not split by platform here.");
+            var caption = Ui.Caption("All platforms: usage is not split by platform.");
             caption.TextWrapping = TextWrapping.Wrap;
             caption.Margin = new Thickness(0, 6, 0, 0);
             body.Children.Add(caption);
