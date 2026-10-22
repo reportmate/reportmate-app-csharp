@@ -368,6 +368,8 @@ public sealed class ReportPage : FleetPage
             data, (r, q) => r.Matches(q), columns,
             $"Search {spec.RowNoun}...", $"No {spec.RowNoun} match the current filters")
             .WithQuery(query)
+            // Every report row belongs to a device; clicking it opens that device.
+            .WithRowLink(r => r["Serial"] is { Length: > 0 } serial ? DeepLink.For("device", serial) : null)
             .Build();
         table.Margin = new Thickness(0, 6, 0, 0);
         return table;

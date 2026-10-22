@@ -123,8 +123,8 @@ public partial class DashboardView : UserControl
     {
         // On the device page the reports always sit inline, as on the web: if the
         // header is short of room the search field gives way instead.
-        var inline = _current == "device" || ReportsFitInline();
-        SearchHost.Visibility = _chrome.ShowsSearchField && !(_current == "device" && _searchYielded)
+        var inline = IsDeviceTag(_current) || ReportsFitInline();
+        SearchHost.Visibility = _chrome.ShowsSearchField && !(IsDeviceTag(_current) && _searchYielded)
             ? Visibility.Visible : Visibility.Collapsed;
         SearchColumn.MinWidth = SearchHost.Visibility == Visibility.Visible ? 140 : 0;
         if (!rebuild && TabBar.Children.Count > 0 && inline == _reportsInline) { SyncChecked(); return; }
@@ -178,7 +178,7 @@ public partial class DashboardView : UserControl
 
     private void FoldIfOverflowing()
     {
-        if (_current != "device" && _searchYielded)
+        if (!IsDeviceTag(_current) && _searchYielded)
         {
             _searchYielded = false;
             BuildTabs();
@@ -196,7 +196,7 @@ public partial class DashboardView : UserControl
         }
         var overflow = right - HeaderGrid.ActualWidth;
         if (overflow <= 0.5) return;
-        if (_current == "device")
+        if (IsDeviceTag(_current))
         {
             // Never fold the reports here; take the search field out instead.
             if (_searchYielded) return;
@@ -306,10 +306,10 @@ public partial class DashboardView : UserControl
             foreach (var (key, old) in _pages) _replaced[key] = old;
             _pages.Clear();
         }
-        var wasDevice = _current == "device";
+        var wasDevice = IsDeviceTag(_current);
         _current = tag;
         // The device page always keeps the full row of report tabs.
-        if (wasDevice != (tag == "device")) BuildTabs(rebuild: true);
+        if (wasDevice != IsDeviceTag(tag)) BuildTabs(rebuild: true);
         var page = GetOrCreatePage(tag);
         // A Frame hands its pages straight to the application's resources, so when
         // the dashboard carries its own, each page has to be given them.
@@ -342,12 +342,18 @@ public partial class DashboardView : UserControl
                 return;
 
             case "device" or "this-device":
-                // A serial addresses a fleet device; without one the link means this
-                // machine, which the device page already renders from the local cache.
-                var page = (DevicePage)GetOrCreatePage("device");
+            {
+                // Without a serial the link means this machine, rendered from its own
+                // cache. With one it is a fleet device, read from the API, unless the
+                // serial is this machine's. One page per serial, kept, so going back
+                // to a device shows what it had at once.
+                var tag = DeviceTag(link.Section == "device" ? link.Argument : null);
+                var page = (DevicePage)GetOrCreatePage(tag);
                 page.ApplyDeepLink(link);
-                NavigateTo("device");
+                Navigate(tag);
+                SyncChecked();
                 return;
+            }
 
             case "applications" when link.Argument is { } argument:
                 // applications/coverage and applications/usage/<app> are pages of their
@@ -431,6 +437,19 @@ public partial class DashboardView : UserControl
     /// <summary>The cached per-device page, if it has been created yet.</summary>
     public DevicePage? DevicePage => _pages.TryGetValue("device", out var p) ? p as DevicePage : null;
 
+    /// <summary>The device page's tag: <c>device</c> for this machine, <c>device:&lt;serial&gt;</c> for a fleet device.</summary>
+    private string DeviceTag(string? serial)
+    {
+        if (string.IsNullOrWhiteSpace(serial)) return "device";
+        // This machine's own serial opens its local report, not an API copy of it.
+        if (DevicePage is { IsRemote: false } local
+            && string.Equals(local.SerialNumber, serial, StringComparison.OrdinalIgnoreCase)) return "device";
+        return "device:" + serial.Trim();
+    }
+
+    private static bool IsDeviceTag(string tag) =>
+        tag == "device" || tag.StartsWith("device:", StringComparison.Ordinal);
+
     private Page GetOrCreatePage(string tag)
     {
         // Settings is rebuilt each visit so it always reflects the registry.
@@ -448,6 +467,7 @@ public partial class DashboardView : UserControl
             page = new AppUsagePage(split > 0 ? rest[(split + 1)..] : rest, days);
         }
         else if (tag == "management-logs") page = new ManagementLogsPage();
+        else if (tag.StartsWith("device:", StringComparison.Ordinal)) page = new DevicePage(tag["device:".Length..]);
         else if (tag == "coverage") page = new CoveragePage();
         else if (tag == "failures") page = new FailuresPage();
         else if (tag == "report:applications")
@@ -560,18 +580,14 @@ public partial class DashboardView : UserControl
     }
 
     /// <summary>
-    /// Show the chosen device. The device page renders this machine's own report
-    /// from the local cache and cannot render another machine's, so a search result
-    /// opens the Devices list narrowed to that serial rather than a page that would
-    /// show the wrong device's data under the right device's name.
+    /// Show the chosen device's own page: this machine's from its cache, any other
+    /// read from the API.
     /// </summary>
     private void OpenDevice(string serial)
     {
         SearchBox.Text = "";
         SearchBox.ItemsSource = null;
-        PendingLink = DeepLink.For("devices", null, ("search", serial));
-        Navigate("devices", force: true);
-        SyncChecked();
+        OpenDeepLink(DeepLink.For("device", serial));
     }
 
     // ── Host search ─────────────────────────────────────────────────────
@@ -607,7 +623,7 @@ public partial class DashboardView : UserControl
 
     /// <summary>
     /// Open the device that best matches <see cref="DeviceSearch"/>, for the host's
-    /// Return key: the Devices list narrowed to it, as choosing a search result does.
+    /// Return key: its device page, as choosing a search result does.
     /// False, leaving the filtered list on screen, when nothing matches.
     /// </summary>
     public async Task<bool> OpenBestDeviceMatchAsync()
@@ -621,7 +637,8 @@ public partial class DashboardView : UserControl
             d => [d.Name, d.SerialNumber, d.AssetTag, d.Hostname]);
         if (match is null) return false;
 
-        ShowDeviceFilter(match.SerialNumber, bringForward: true);
+        _hostDeviceFilter = match.SerialNumber;
+        OpenDeepLink(DeepLink.For("device", match.SerialNumber));
         return true;
     }
 

@@ -23,7 +23,7 @@
 
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <TextBlock x:Name="DeviceNameText" Style="{StaticResource TitleTextStyle}" VerticalAlignment="Center" />
-                        <Path Data="{x:Static shared:PlatformIcon.WindowsGeometry}" Stretch="Uniform" Width="13" Height="13"
+                        <Path x:Name="PlatformMark" Data="{x:Static shared:PlatformIcon.WindowsGeometry}" Stretch="Uniform" Width="13" Height="13"
                               Margin="10,0,12,0" Opacity="0.6" Fill="{DynamicResource TextSecondaryBrush}"
                               VerticalAlignment="Center" ToolTip="Windows" />
                         <StackPanel x:Name="PillsPanel" Orientation="Horizontal" VerticalAlignment="Center" />
@@ -44,7 +44,7 @@
                                     <MenuItem Header="Copy web link" Click="OnCopyWebLink" />
                                     <MenuItem Header="Copy app link" Click="OnCopyAppLink" />
                                     <Separator />
-                                    <MenuItem Header="Open cache folder" Click="OnOpenCache" />
+                                    <MenuItem x:Name="OpenCacheItem" Header="Open cache folder" Click="OnOpenCache" />
                                     <MenuItem Header="Open in ReportMate web" Click="OnOpenWeb" />
                                 </ui:MenuFlyout>
                             </ui:DropDownButton.Flyout>

@@ -138,6 +138,7 @@ public sealed class DevicesPage : FleetPage
             .Filter(Options(rows, r => r.Usage, "Any usage"), (r, k) => r.Usage == k)
             .Filter(Options(rows, r => r.Catalog, "Any catalog"), (r, k) => r.Catalog == k)
             .WithQuery(query)
+            .WithRowLink(r => string.IsNullOrWhiteSpace(r.Serial) ? null : DeepLink.For("device", r.Serial))
             .WithSearchBox(!hostSearch)
             .Build();
 

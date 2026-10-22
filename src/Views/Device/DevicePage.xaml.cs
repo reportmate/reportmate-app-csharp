@@ -11,7 +11,7 @@ namespace ReportMate.App.Views.Device;
 
 public partial class DevicePage : Page
 {
-    private readonly DeviceViewModel _vm = new();
+    private readonly DeviceViewModel _vm;
     private readonly List<DeviceTab> _tabs =
     [
         new InfoTab(),
@@ -28,16 +28,28 @@ public partial class DevicePage : Page
     ];
     private DeviceTab? _active;
 
-    public DevicePage()
+    /// <summary>This machine's report, read from the runner's local cache.</summary>
+    public DevicePage() : this(null) { }
+
+    /// <param name="remoteSerial">
+    /// A fleet device to read from the API; null for this machine. One page is kept
+    /// per serial, so going back to a device shows what it had at once.
+    /// </param>
+    public DevicePage(string? remoteSerial)
     {
+        _vm = new DeviceViewModel(remoteSerial);
         // Before InitializeComponent, so the markup's StaticResource references resolve
         // when the dashboard carries its own resources.
         DashboardResources.Adopt(this);
         InitializeComponent();
+        if (remoteSerial is not null) OpenCacheItem.Visibility = Visibility.Collapsed;
         BuildTabStrip();
         Loaded += async (_, _) =>
         {
             if (_vm.Snapshot.IsEmpty && !_vm.IsLoading) await ReloadAsync();
+            // A fleet device shown again refreshes behind what it had, once that is a minute old.
+            else if (IsRemote && !_vm.IsLoading && (_vm.LoadedAt is not { } at || DateTime.UtcNow - at > TimeSpan.FromMinutes(1)))
+                await ReloadAsync();
             if (_watcher is null && _poll is null) StartAutoRefresh();
         };
         Unloaded += (_, _) =>
@@ -86,10 +98,24 @@ public partial class DevicePage : Page
         var wanted = link.DeviceTab;
         if (string.IsNullOrWhiteSpace(wanted)) return;
 
+        // A Management Tools Logs link opens the log viewer on its tool and level.
+        if (link["tool"] is not null || link["level"] is not null)
+            foreach (var management in _tabs.OfType<ManagementTab>())
+            {
+                management.ShowLogs(link["tool"], link["level"]);
+                if (ReferenceEquals(_active, management) && !_vm.Snapshot.IsEmpty) ShowTab(management);
+            }
+
         var index = _tabs.FindIndex(t => string.Equals(t.Label, wanted, StringComparison.OrdinalIgnoreCase));
         if (index < 0 || index >= TabStrip.Children.Count) return;
         if (TabStrip.Children[index] is RadioButton rb) rb.IsChecked = true;
     }
+
+    /// <summary>True when this page shows a fleet device read from the API.</summary>
+    public bool IsRemote => _vm.RemoteSerial is not null;
+
+    /// <summary>The serial this page shows: the fleet device's, or this machine's once read.</summary>
+    public string SerialNumber => _vm.RemoteSerial ?? _vm.SerialNumber;
 
     /// <summary>A link to this device, carrying the tab currently being shown.</summary>
     public DeepLink CurrentLink() =>
@@ -116,9 +142,11 @@ public partial class DevicePage : Page
         {
             TabHost.Content = null;
             EmptyPanel.Visibility = Visibility.Visible;
-            EmptyDetail.Text = _vm.Error is null
-                ? $"Nothing has been collected on this device yet. Run a collection to build the report; the runner writes it to {DeviceSnapshotStore.Instance.CacheRoot}."
-                : $"Could not read the local cache: {_vm.Error}";
+            EmptyDetail.Text = IsRemote
+                ? _vm.Error ?? "The API has no report for this device yet."
+                : _vm.Error is null
+                    ? $"Nothing has been collected on this device yet. Run a collection to build the report; the runner writes it to {DeviceSnapshotStore.Instance.CacheRoot}."
+                    : $"Could not read the local cache: {_vm.Error}";
             return;
         }
         EmptyPanel.Visibility = Visibility.Collapsed;
@@ -154,6 +182,12 @@ public partial class DevicePage : Page
     private void RenderHeader()
     {
         DeviceNameText.Text = _vm.DeviceName;
+        // The platform's own logo: this machine is Windows, a fleet device is whatever the API says.
+        if (IsRemote && Shared.PlatformIcon.GeometryFor(_vm.Snapshot.Platform) is { } mark)
+        {
+            PlatformMark.Data = mark;
+            PlatformMark.ToolTip = Shared.PlatformIcon.Kind(_vm.Snapshot.Platform) == "mac" ? "macOS" : "Windows";
+        }
         VersionText.Text = string.IsNullOrEmpty(_vm.ClientVersion) ? "" : $"ReportMate v{_vm.ClientVersion}";
         VersionText.ToolTip = _vm.Snapshot.NewestRunDirectory;
 
@@ -180,6 +214,16 @@ public partial class DevicePage : Page
     // cases a watcher misses (a run directory created while the app was suspended).
     private void StartAutoRefresh()
     {
+        // A fleet device has no cache here to watch; it refreshes every five minutes,
+        // as the fleet pages do.
+        if (IsRemote)
+        {
+            _poll = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(5) };
+            _poll.Tick += async (_, _) => await ReloadAsync();
+            _poll.Start();
+            return;
+        }
+
         var root = DeviceSnapshotStore.Instance.CacheRoot;
         if (System.IO.Directory.Exists(root))
         {
@@ -244,6 +288,8 @@ public partial class DevicePage : Page
 
     private void OnOpenCache(object sender, RoutedEventArgs e)
     {
+        // A fleet device's cache is on that device, not this one.
+        if (IsRemote) return;
         var dir = _vm.Snapshot.NewestRunDirectory ?? DeviceSnapshotStore.Instance.CacheRoot;
         if (!System.IO.Directory.Exists(dir)) return;
         Process.Start(new ProcessStartInfo { FileName = "explorer.exe", Arguments = dir, UseShellExecute = true });

@@ -127,9 +127,9 @@ public static class InsightCards
     // ── Links ────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// The app link for a server <c>link: {path, params}</c>. A device link opens the
-    /// device list narrowed to that serial, because the device page shows this
-    /// machine only.
+    /// The app link for a server <c>link: {path, params}</c>, as the web route it names:
+    /// <c>/device/&lt;serial&gt;?tab=management&amp;tool=…&amp;level=…</c> opens that device's page
+    /// on its Management tab's log viewer.
     /// </summary>
     public static DeepLink? ToDeepLink(JsonElement? node)
     {
@@ -143,8 +143,6 @@ public static class InsightCards
             foreach (var kv in p.EnumerateObject())
                 parameters.Add((kv.Name, kv.Value.ValueKind == JsonValueKind.String ? kv.Value.GetString() : kv.Value.ToString()));
 
-        if (segments[0].Equals("device", StringComparison.OrdinalIgnoreCase) && segments.Count > 1)
-            return DeepLink.For("devices", null, ("search", segments[1]));
 
         var argument = segments.Count > 1 ? string.Join('/', segments.Skip(1)) : null;
         return DeepLink.For(segments[0].ToLowerInvariant(), argument, parameters.ToArray());

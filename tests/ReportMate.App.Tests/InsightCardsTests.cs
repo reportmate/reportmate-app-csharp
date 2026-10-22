@@ -186,7 +186,7 @@ public class InsightCardsTests
         Assert.Equal("reportmate://hardware?capacity=le256", Find(view, "256 GB or less").Link!.ToAppUrl());
         Assert.Equal("reportmate://hardware?platform=macOS&storage=low", Find(view, "macOS").Link!.ToAppUrl());
         var fullest = Find(view, "Sample Laptop");
-        Assert.Equal("reportmate://devices?search=SAMPLE1", fullest.Link!.ToAppUrl());
+        Assert.Equal("reportmate://device/SAMPLE1", fullest.Link!.ToAppUrl());
         Assert.StartsWith("3.2% free", fullest.Detail);
     }
 

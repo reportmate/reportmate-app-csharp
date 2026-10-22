@@ -294,13 +294,9 @@ public sealed class DashboardPage : FleetPage
 
     private static DeepLink To(string section, params (string, string?)[] filters) => DeepLink.For(section, null, filters);
 
-    /// <summary>
-    /// Where a device row goes. The device page renders this machine from its local
-    /// cache and cannot render another one, so a fleet device opens the device list
-    /// narrowed to its serial -- the same place the header search lands.
-    /// </summary>
+    /// <summary>Where a device row goes: that device's own page.</summary>
     private static DeepLink DeviceLink(string? serial) =>
-        string.IsNullOrWhiteSpace(serial) ? To("devices") : To("devices", ("search", serial));
+        string.IsNullOrWhiteSpace(serial) ? To("devices") : DeepLink.For("device", serial);
 
     /// <summary>A widget row that follows a link, inset so its hover tint has room.</summary>
     private static UIElement Linked(UIElement content, DeepLink link)
