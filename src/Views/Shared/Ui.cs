@@ -107,15 +107,25 @@ public static partial class Ui
             if (i > 0) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(gap) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(weights[i], GridUnitType.Star) });
         }
-        var col = 0;
+        // More children than columns wrap onto further rows. Placing them all on row
+        // zero stacked the extras in the last column, on top of what was there --
+        // the Info tab's System card drew Build over Feature that way.
+        var rows = (children.Length + weights.Length - 1) / Math.Max(1, weights.Length);
+        for (var r = 0; r < rows; r++)
+        {
+            if (r > 0) grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(gap) });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+        var index = 0;
         foreach (var child in children)
         {
             if (child is not null)
             {
-                Grid.SetColumn(child, col * 2);
+                Grid.SetColumn(child, index % weights.Length * 2);
+                Grid.SetRow(child, index / weights.Length * 2);
                 grid.Children.Add(child);
             }
-            col++;
+            index++;
         }
         return grid;
     }
@@ -521,10 +531,36 @@ public sealed class UniformCardPanel : Panel
     public double Gap { get; set; } = 24;
     public int MaxColumns { get; set; } = 3;
 
+    /// <summary>
+    /// Spread the cards over rows of even length rather than filling the first rows
+    /// and leaving a stub: six cards with room for four go three and three, not four
+    /// and two. A wide window should read as a grid, not as a ragged last line.
+    /// </summary>
+    public bool Balanced { get; set; } = true;
+
+    /// <summary>
+    /// Give every card in a row the row's height, so a grid of like cards lines up.
+    /// Off, each card keeps its own height and sits at the top of its row.
+    /// </summary>
+    public bool StretchRows { get; set; } = true;
+
+    /// <summary>
+    /// Keep the column width a full row would have even when there are fewer cards
+    /// than columns, so three cards in a four-column grid sit at a quarter width each
+    /// and line up with the columns above, rather than stretching to fill the row.
+    /// </summary>
+    public bool KeepColumnWidth { get; set; }
+
     private int ColumnsFor(double width)
     {
+        var count = InternalChildren.Count;
         var cols = (int)Math.Floor((width + Gap) / (MinItemWidth + Gap));
-        return Math.Clamp(cols, 1, Math.Max(1, Math.Min(MaxColumns, InternalChildren.Count == 0 ? 1 : InternalChildren.Count)));
+        cols = KeepColumnWidth
+            ? Math.Clamp(cols, 1, Math.Max(1, MaxColumns))
+            : Math.Clamp(cols, 1, Math.Max(1, Math.Min(MaxColumns, count == 0 ? 1 : count)));
+        if (!Balanced || count == 0) return cols;
+        var rows = (int)Math.Ceiling(count / (double)cols);
+        return (int)Math.Ceiling(count / (double)rows);
     }
 
     protected override Size MeasureOverride(Size availableSize)
@@ -555,7 +591,8 @@ public sealed class UniformCardPanel : Panel
             var row = children.Skip(start).Take(cols).ToList();
             var rowHeight = row.Max(c => c.DesiredSize.Height);
             for (var c = 0; c < row.Count; c++)
-                row[c].Arrange(new Rect(c * (itemWidth + Gap), y, itemWidth, rowHeight));
+                row[c].Arrange(new Rect(c * (itemWidth + Gap), y, itemWidth,
+                    StretchRows ? rowHeight : row[c].DesiredSize.Height));
             y += rowHeight + Gap;
         }
         return finalSize;

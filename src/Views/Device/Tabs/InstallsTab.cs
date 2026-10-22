@@ -89,9 +89,25 @@ public sealed class InstallsTab : DeviceTab
                 sublabel: durationSeconds > 0 ? $"Duration: {Format.Duration(durationSeconds)}" : null)));
         Add(Ui.Card(configGrid, new Thickness(20, 16, 20, 18)));
 
-        // Run log
+        // Run log. A fleet device's arrives on request: it can run to megabytes.
         if (!string.IsNullOrWhiteSpace(installs.RunLog))
             Add(RunLogSection(installs.RunLog));
+        else if (s.FetchRunLog is { } fetchRunLog)
+        {
+            var logHost = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch };
+            var load = Ui.IconButton("\uE896", "Show the run log", async (_, _) =>
+            {
+                logHost.Content = Skeleton.Capped(Skeleton.Pulse(Skeleton.Rows(6)), () => { });
+                var log = await fetchRunLog(CancellationToken.None);
+                if (!string.IsNullOrWhiteSpace(log)) installs.RunLog = log;
+                logHost.Content = string.IsNullOrWhiteSpace(log)
+                    ? Ui.Card(Ui.EmptyState("This device has not reported a run log."))
+                    : RunLogSection(log, open: true);
+            });
+            load.HorizontalAlignment = HorizontalAlignment.Left;
+            logHost.Content = load;
+            Add(logHost);
+        }
 
         // Packages
         var packages = ProcessPackages(installs);
@@ -341,7 +357,8 @@ public sealed class InstallsTab : DeviceTab
         };
     }
 
-    private static UIElement RunLogSection(string log)
+    /// <param name="open">Expanded, for a log the reader just asked for.</param>
+    private static UIElement RunLogSection(string log, bool open = false)
     {
         var text = CleanLogText(log);
         var pre = new TextBox
@@ -365,7 +382,7 @@ public sealed class InstallsTab : DeviceTab
         var body = new StackPanel();
         body.Children.Add(toolbar);
         body.Children.Add(pre);
-        return Ui.Card(Ui.Collapsible("Managed Software Update Last Run Log", body), new Thickness(20, 8, 20, 10));
+        return Ui.Card(Ui.Collapsible("Managed Software Update Last Run Log", body, open), new Thickness(20, 8, 20, 10));
     }
 
     // ── Processing (port of extractInstalls for the Cimian payload) ──

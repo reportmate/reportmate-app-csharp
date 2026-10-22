@@ -57,6 +57,12 @@ public partial class SettingsPage : Page
     ];
 
     // PasswordBox.Password is not bindable by design; push it into the view model by hand.
+    /// <summary>Every link the app opens goes through <see cref="SafeLinks"/>.</summary>
+    private void OnOpenLink(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string url }) SafeLinks.TryOpen(url);
+    }
+
     private void OnPassphraseChanged(object sender, RoutedEventArgs e) => _vm.Passphrase = PassphraseBox.Password;
 
     /// <summary>
@@ -77,7 +83,7 @@ public partial class SettingsPage : Page
         foreach (var body in new[] { InventoryBody, SecurityBody, MaintenanceBody })
         {
             body.Children.Clear();
-            body.Children.Add(Ui.Caption("Loading…"));
+            body.Children.Add(Skeleton.Capped(Skeleton.Pulse(Skeleton.Rows(4)), () => _ = LoadFleetSettingsAsync()));
         }
 
         var result = await FleetSettings.GetAsync();
@@ -193,13 +199,15 @@ public partial class SettingsPage : Page
         var web = ConfigManager.Instance.WebDashboardUrl;
         if (string.IsNullOrWhiteSpace(web)) return;
 
+        var target = $"{web}/settings#{section}";
+        if (!SafeLinks.IsSafe(target)) return;
         var link = new ModernWpf.Controls.HyperlinkButton
         {
             Content = "Edit in the web app",
-            NavigateUri = new Uri($"{web}/settings#{section}"),
             Margin = new Thickness(-10, 10, 0, 0),
             HorizontalAlignment = HorizontalAlignment.Left,
         };
+        link.Click += (_, _) => SafeLinks.TryOpen(target);
         body.Children.Add(link);
     }
 

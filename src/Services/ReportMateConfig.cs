@@ -18,6 +18,16 @@ public sealed class ReportMateConfig
     public string? ReadApiKey { get; set; }
 
     /// <summary>
+    /// The Entra audience (an <c>api://</c> URI or application ID) to sign in for. Left
+    /// empty, the app asks the API at an administrator-set address for the one it
+    /// advertises. Not a secret: it names the API, and the token is minted by az.
+    /// </summary>
+    public string? OidcAudience { get; set; }
+
+    /// <summary>Which layer the API address came from; decides whether its audience is trusted.</summary>
+    public ApiUrlSource ApiUrlSource { get; set; } = ApiUrlSource.None;
+
+    /// <summary>
     /// The web dashboard's base URL. The only thing a shareable link needs that the app
     /// cannot work out for itself, so it is configured rather than hardcoded per
     /// deployment. Falls back to the API host with its api. prefix dropped.

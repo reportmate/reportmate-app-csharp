@@ -21,15 +21,16 @@ public partial class DashboardView : UserControl
 {
     private readonly Dictionary<string, Page> _pages = new();
 
+    /// <summary>
+    /// Pages replaced by a rebuild -- a platform change, a link -- kept until their
+    /// successor is made, so it can open on what they were showing.
+    /// </summary>
+    private readonly Dictionary<string, Page> _replaced = new();
+
     private bool _reportsInline;
     private string _current = "dashboard";
     private DashboardChrome _chrome = DashboardChrome.Standard;
 
-    /// <summary>
-    /// The width of the tab bar with every report as its own tab, measured the last
-    /// time it was drawn that way; zero until then.
-    /// </summary>
-    private double _inlineTabsWidth;
 
     /// <summary>The dashboard reading its palette and styles from the application's resources.</summary>
     public DashboardView() : this(scopedResources: false) { }
@@ -69,12 +70,10 @@ public partial class DashboardView : UserControl
                 _ => "report:" + id,
             });
         HeaderGrid.SizeChanged += (_, _) => BuildTabs();
-        TabBarFrame.SizeChanged += (_, _) =>
-        {
-            if (!_reportsInline || TabBarFrame.ActualWidth <= 0) return;
-            _inlineTabsWidth = TabBarFrame.ActualWidth;
-            BuildTabs();
-        };
+        // The arithmetic of what fits happens after layout, against where the
+        // window's caption buttons actually are.
+        HeaderGrid.LayoutUpdated += (_, _) => FoldIfOverflowing();
+        Loaded += (_, _) => AttachToWindow();
         BuildTabs();
         Navigate("dashboard");
     }
@@ -110,11 +109,22 @@ public partial class DashboardView : UserControl
     /// Reports sit inline as their own tabs when the header has the room for them
     /// beside its other controls, and collapse into one Reports tab when it does not.
     /// </summary>
-    private void BuildTabs()
+    private void BuildTabs(bool rebuild = false)
     {
-        var inline = ReportsFitInline();
-        if (TabBar.Children.Count > 0 && inline == _reportsInline) { SyncChecked(); return; }
+        // When the header is short of room it gives way in steps, on every page: the
+        // search folds to an icon, then the tabs drop their labels and keep their
+        // icons, and only then -- never on a device page -- do the reports fold into
+        // one Reports tab.
+        var device = IsDeviceTag(_current);
+        var inline = device || _fit < 3;
+        var searchFolded = _fit >= 1 && !_searchOpen;
+        SearchHost.Visibility = _chrome.ShowsSearchField && !searchFolded ? Visibility.Visible : Visibility.Collapsed;
+        SearchIcon.Visibility = _chrome.ShowsSearchField && searchFolded ? Visibility.Visible : Visibility.Collapsed;
+        SearchColumn.MinWidth = SearchHost.Visibility == Visibility.Visible ? 140 : 0;
+        var compact = _fit >= 2 || _searchOpen;
+        if (!rebuild && TabBar.Children.Count > 0 && inline == _reportsInline && compact == _compactTabs) { SyncChecked(); return; }
         _reportsInline = inline;
+        _compactTabs = compact;
 
         TabBar.Children.Clear();
         AddTab("dashboard", "Dashboard", "");
@@ -132,18 +142,114 @@ public partial class DashboardView : UserControl
         SyncChecked();
     }
 
+
     /// <summary>
-    /// Whether every report fits as its own tab in the width the header's other
-    /// controls leave: the mark, the platform toggle, the search field's minimum
-    /// and the trailing buttons. Before the inline tabs have been measured they are
-    /// drawn once to find out, which is what records their width.
+    /// Fold the reports into one tab when the drawn header is wider than the window:
+    /// the settings button's far edge, plus the room kept for the caption buttons,
+    /// has to land inside the header. At about 1200 px the inline tabs ran on under
+    /// the minimise, maximise and close buttons, because the fit was judged on widths
+    /// measured before the tabs had been laid out.
     /// </summary>
-    private bool ReportsFitInline()
+    /// <summary>
+    /// How far the header has given way to fit beside the caption buttons: 0 not at
+    /// all, 1 the search folded to an icon, 2 the tabs icon-only as well, 3 the
+    /// reports folded into one Reports tab (never on a device page).
+    /// </summary>
+    private int _fit;
+
+    /// <summary>The header width the last step was taken at, so a wider window can undo it.</summary>
+    private double _fitWidth;
+
+    /// <summary>The folded search was opened from its icon.</summary>
+    private bool _searchOpen;
+
+    private bool _compactTabs;
+
+    private int MaxFit => IsDeviceTag(_current) ? 2 : 3;
+
+    private void FoldIfOverflowing()
     {
-        if (_inlineTabsWidth <= 0) return true;
-        var columns = HeaderGrid.ColumnDefinitions;
-        var others = columns[0].ActualWidth + columns[1].ActualWidth + columns[4].ActualWidth + SearchColumn.MinWidth;
-        return HeaderGrid.ActualWidth > 0 && _inlineTabsWidth <= HeaderGrid.ActualWidth - others;
+        if (HeaderGrid.ActualWidth <= 0 || TrailingItems.ActualWidth <= 0) return;
+
+        // Past the last step a page can take -- after leaving a device page at step 3 --
+        // or well wider than where the header last gave way: start again from nothing.
+        if (_fit > MaxFit || (_fit > 0 && HeaderGrid.ActualWidth > _fitWidth + 80))
+        {
+            _fit = 0;
+            BuildTabs(rebuild: true);
+            return;
+        }
+
+        if (!Overflows()) return;
+        if (_fit >= MaxFit) return;
+        _fit++;
+        _fitWidth = HeaderGrid.ActualWidth;
+        BuildTabs(rebuild: true);
+    }
+
+    /// <summary>
+    /// Whether the header's last control runs under the window's caption buttons,
+    /// or past the header's own edge. The caption buttons are found where the window
+    /// draws them, not assumed to be a constant width: their width changes with the
+    /// display's scaling and the system's settings.
+    /// </summary>
+    private bool Overflows()
+    {
+        try
+        {
+            var right = TrailingItems.TranslatePoint(new Point(TrailingItems.ActualWidth, 0), HeaderGrid).X;
+            if (right + TrailingItems.Margin.Right > HeaderGrid.ActualWidth + 0.5) return true;
+
+            if (_window is not null && CaptionButtonsLeft() is { } captions)
+            {
+                var inWindow = TrailingItems.TranslatePoint(new Point(TrailingItems.ActualWidth, 0), _window).X;
+                if (inWindow > captions - 4) return true;
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // Not in the window's tree yet; the next layout pass will say.
+        }
+        return false;
+    }
+
+    private Window? _window;
+    private FrameworkElement? _captionButtons;
+
+    /// <summary>
+    /// Follow the window this header sits in: its caption-button area, and the
+    /// inset ModernWpf reports for it, which the trailing controls keep clear of.
+    /// </summary>
+    private void AttachToWindow()
+    {
+        var window = Window.GetWindow(this);
+        if (window is null || ReferenceEquals(window, _window)) return;
+        _window = window;
+        if (!ModernWpf.Controls.TitleBar.GetExtendViewIntoTitleBar(window)) return;
+
+        window.ApplyTemplate();
+        _captionButtons = window.Template?.FindName("PART_RightSystemOverlay", window) as FrameworkElement;
+        System.ComponentModel.DependencyPropertyDescriptor
+            .FromProperty(ModernWpf.Controls.TitleBar.SystemOverlayRightInsetProperty, typeof(Window))
+            ?.AddValueChanged(window, (_, _) => ApplyCaptionInset());
+        ApplyCaptionInset();
+    }
+
+    private void ApplyCaptionInset()
+    {
+        if (_window is null) return;
+        var inset = ModernWpf.Controls.TitleBar.GetSystemOverlayRightInset(_window);
+        if (inset > 0) CaptionButtonsWidth = inset + 4;
+    }
+
+    /// <summary>The caption buttons' left edge in the window, or null when there are none to find.</summary>
+    private double? CaptionButtonsLeft()
+    {
+        if (_window is null) return null;
+        if (_captionButtons is { ActualWidth: > 0 } overlay)
+            return overlay.TranslatePoint(new Point(0, 0), _window).X;
+        var inset = ModernWpf.Controls.TitleBar.GetSystemOverlayRightInset(_window);
+        return inset > 0 ? _window.ActualWidth - inset : null;
     }
 
     /// <summary>
@@ -180,7 +286,11 @@ public partial class DashboardView : UserControl
                 Margin = new Thickness(0, 0, 6, 0),
                 VerticalAlignment = VerticalAlignment.Center,
             });
-        content.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+        // Icon-only when the device page's header is short of room; the label moves
+        // to the tooltip and the accessible name.
+        var iconOnly = _compactTabs && !string.IsNullOrEmpty(glyph);
+        if (iconOnly && content.Children.Count > 0 && content.Children[0] is FrameworkElement icon) icon.Margin = new Thickness(0);
+        else content.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
 
         var tab = new RadioButton
         {
@@ -188,7 +298,9 @@ public partial class DashboardView : UserControl
             GroupName = "MainTabs",
             Style = (Style)FindResource("NavigationTabStyle"),
             Content = content,
+            ToolTip = iconOnly ? label : null,
         };
+        System.Windows.Automation.AutomationProperties.SetName(tab, label);
         System.Windows.Shell.WindowChrome.SetIsHitTestVisibleInChrome(tab, true);
         tab.Checked += OnTabChecked;
         TabBar.Children.Add(tab);
@@ -197,19 +309,39 @@ public partial class DashboardView : UserControl
     /// <summary>Keep the checked tab matching the page actually shown after a rebuild.</summary>
     private void SyncChecked()
     {
-        foreach (var child in TabBar.Children)
-            if (child is RadioButton rb && rb.Tag?.ToString() == _current) { rb.IsChecked = true; return; }
-
-        // The current page has no tab at this width (a report while collapsed):
-        // show Reports as the active section instead of leaving nothing checked.
-        if (_current.StartsWith("report:", StringComparison.Ordinal))
+        // Checking a tab here only marks where the reader is. Letting it navigate
+        // too sent a report opened while the reports were folded straight on to the
+        // Reports landing page, and rebuilt a page a link had just opened.
+        _syncing = true;
+        try
+        {
+            // Management Tools Logs is the Management report's second view, under its tab.
+            var tab = _current == "management-logs" ? "report:management" : _current;
             foreach (var child in TabBar.Children)
-                if (child is RadioButton rb && rb.Tag?.ToString() == "reports") { rb.IsChecked = true; return; }
+                if (child is RadioButton rb && rb.Tag?.ToString() == tab) { rb.IsChecked = true; return; }
+
+            // The current page has no tab at this width (a report while collapsed):
+            // show Reports as the active section instead of leaving nothing checked.
+            if (_current.StartsWith("report:", StringComparison.Ordinal)
+                || _current is "failures" or "coverage" or "management-logs" || _current.StartsWith("usage:", StringComparison.Ordinal))
+                foreach (var child in TabBar.Children)
+                    if (child is RadioButton rb && rb.Tag?.ToString() == "reports") { rb.IsChecked = true; return; }
+
+            // Nothing on the bar matches (a drill-down page): clear the old mark.
+            foreach (var child in TabBar.Children)
+                if (child is RadioButton { IsChecked: true } rb) rb.IsChecked = false;
+        }
+        finally
+        {
+            _syncing = false;
+        }
     }
+
+    private bool _syncing;
 
     private void OnTabChecked(object sender, RoutedEventArgs e)
     {
-        if (ContentFrame is null) return;
+        if (ContentFrame is null || _syncing) return;
         if (sender is RadioButton { Tag: string tag }) Navigate(tag);
     }
 
@@ -217,8 +349,15 @@ public partial class DashboardView : UserControl
     {
         // Pages are cached, so a change to what they should be showing has to empty
         // the cache or the change is invisible until the app restarts.
-        if (force) _pages.Clear();
+        if (force)
+        {
+            foreach (var (key, old) in _pages) _replaced[key] = old;
+            _pages.Clear();
+        }
+        var wasDevice = IsDeviceTag(_current);
         _current = tag;
+        // The device page always keeps the full row of report tabs.
+        if (wasDevice != IsDeviceTag(tag)) BuildTabs(rebuild: true);
         var page = GetOrCreatePage(tag);
         // A Frame hands its pages straight to the application's resources, so when
         // the dashboard carries its own, each page has to be given them.
@@ -251,12 +390,18 @@ public partial class DashboardView : UserControl
                 return;
 
             case "device" or "this-device":
-                // A serial addresses a fleet device; without one the link means this
-                // machine, which the device page already renders from the local cache.
-                var page = (DevicePage)GetOrCreatePage("device");
+            {
+                // Without a serial the link means this machine, rendered from its own
+                // cache. With one it is a fleet device, read from the API, unless the
+                // serial is this machine's. One page per serial, kept, so going back
+                // to a device shows what it had at once.
+                var tag = DeviceTag(link.Section == "device" ? link.Argument : null);
+                var page = (DevicePage)GetOrCreatePage(tag);
                 page.ApplyDeepLink(link);
-                NavigateTo("device");
+                Navigate(tag);
+                SyncChecked();
                 return;
+            }
 
             case "applications" when link.Argument is { } argument:
                 // applications/coverage and applications/usage/<app> are pages of their
@@ -264,40 +409,67 @@ public partial class DashboardView : UserControl
                 // applications report with a filter applied.
                 if (argument.Equals("coverage", StringComparison.OrdinalIgnoreCase))
                 {
-                    NavigateTo("coverage");
+                    ShowFresh("coverage");
                     return;
                 }
                 if (argument.StartsWith("usage/", StringComparison.OrdinalIgnoreCase))
                 {
                     var days = int.TryParse(link["days"], out var d) ? d : 30;
-                    NavigateTo($"usage:{days}:{argument["usage/".Length..]}");
+                    // The App Usage card's usage and catalog filters ride along.
+                    PendingLink = link;
+                    ShowFresh($"usage:{days}:{argument["usage/".Length..]}");
                     return;
                 }
                 PendingLink = link;
-                NavigateTo("report:applications");
+                ShowFresh("report:applications");
+                return;
+
+            // management/logs is the Management report's second view, Management Tools Logs.
+            case "management" when link.Argument is { } mgmt && mgmt.Equals("logs", StringComparison.OrdinalIgnoreCase):
+                PendingLink = link;
+                ShowFresh("management-logs");
                 return;
 
             // events/failures is a page of its own on the web, the same shape as
             // applications/coverage, so a link to it opens that page rather than the
-            // events list.
+            // events list -- with the link's window, reason and outcome.
             case "events" when link.Argument is { } events
                 && events.Equals("failures", StringComparison.OrdinalIgnoreCase):
-                NavigateTo("failures");
+                PendingLink = link;
+                ShowFresh("failures");
                 return;
 
             case "dashboard" or "devices" or "events":
                 PendingLink = link;
-                NavigateTo(link.Section);
+                ShowFresh(link.Section);
                 return;
 
             default:
                 // Every remaining section is a report, and they share their names with
                 // the web routes, so the section is the report id.
                 PendingLink = link;
-                NavigateTo("report:" + link.Section);
+                ShowFresh("report:" + link.Section);
                 return;
         }
     }
+
+    /// <summary>
+    /// Show a page built for the link just followed. Pages are cached and read their
+    /// link once, so a report already opened unfiltered would otherwise come back
+    /// unfiltered and leave the link waiting for whichever page loaded next.
+    /// </summary>
+    private void ShowFresh(string tag)
+    {
+        if (_pages.Remove(tag, out var old)) _replaced[tag] = old;
+        Navigate(tag);
+        SyncChecked();
+    }
+
+    /// <summary>
+    /// Follow a link from inside the dashboard -- a widget, a bar, a chip -- to the
+    /// view it names, filtered as it says.
+    /// </summary>
+    public static void Follow(DependencyObject from, DeepLink link) => Containing(from)?.OpenDeepLink(link);
 
     /// <summary>The link a page about to be shown should apply, if any.</summary>
     public static DeepLink? PendingLink { get; set; }
@@ -312,6 +484,19 @@ public partial class DashboardView : UserControl
 
     /// <summary>The cached per-device page, if it has been created yet.</summary>
     public DevicePage? DevicePage => _pages.TryGetValue("device", out var p) ? p as DevicePage : null;
+
+    /// <summary>The device page's tag: <c>device</c> for this machine, <c>device:&lt;serial&gt;</c> for a fleet device.</summary>
+    private string DeviceTag(string? serial)
+    {
+        if (string.IsNullOrWhiteSpace(serial)) return "device";
+        // This machine's own serial opens its local report, not an API copy of it.
+        if (DevicePage is { IsRemote: false } local
+            && string.Equals(local.SerialNumber, serial, StringComparison.OrdinalIgnoreCase)) return "device";
+        return "device:" + serial.Trim();
+    }
+
+    private static bool IsDeviceTag(string tag) =>
+        tag == "device" || tag.StartsWith("device:", StringComparison.Ordinal);
 
     private Page GetOrCreatePage(string tag)
     {
@@ -329,8 +514,18 @@ public partial class DashboardView : UserControl
             var days = split > 0 && int.TryParse(rest[..split], out var d) ? d : 30;
             page = new AppUsagePage(split > 0 ? rest[(split + 1)..] : rest, days);
         }
+        else if (tag == "management-logs") page = new ManagementLogsPage();
+        else if (tag.StartsWith("device:", StringComparison.Ordinal)) page = new DevicePage(tag["device:".Length..]);
         else if (tag == "coverage") page = new CoveragePage();
         else if (tag == "failures") page = new FailuresPage();
+        else if (tag == "report:applications")
+        {
+            // Rebuilt for the platform toggle with no link of its own, the report keeps
+            // the applications and filters it was showing rather than starting over.
+            var carried = PendingLink is null && _replaced.TryGetValue(tag, out var old) && old is ApplicationsReportPage shown
+                ? shown.CurrentLink() : null;
+            page = new ApplicationsReportPage(carried);
+        }
         else if (tag.StartsWith("report:", StringComparison.Ordinal))
         {
             var area = ReportArea.ById(tag["report:".Length..]);
@@ -348,8 +543,29 @@ public partial class DashboardView : UserControl
             };
         }
 
+        // A rebuilt page opens on what its predecessor showed and refreshes over it.
+        if (_replaced.Remove(tag, out var previous) && page is FleetPage fresh && previous is FleetPage stale)
+            fresh.Adopt(stale);
+
         _pages[tag] = page;
         return page;
+    }
+
+    /// <summary>Open the folded search: the tabs go icon-only to make room, and the box takes focus.</summary>
+    private void OnSearchIconClick(object sender, RoutedEventArgs e)
+    {
+        _searchOpen = true;
+        BuildTabs(rebuild: true);
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, () => SearchBox.Focus());
+    }
+
+    /// <summary>An opened search folds back to its icon once it is left empty.</summary>
+    private void OnSearchLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (!_searchOpen || !string.IsNullOrWhiteSpace(SearchBox.Text)) return;
+        if (SearchBox.IsKeyboardFocusWithin) return;
+        _searchOpen = false;
+        BuildTabs(rebuild: true);
     }
 
     // ── Platform scope ──────────────────────────────────────────────────
@@ -429,18 +645,14 @@ public partial class DashboardView : UserControl
     }
 
     /// <summary>
-    /// Show the chosen device. The device page renders this machine's own report
-    /// from the local cache and cannot render another machine's, so a search result
-    /// opens the Devices list narrowed to that serial rather than a page that would
-    /// show the wrong device's data under the right device's name.
+    /// Show the chosen device's own page: this machine's from its cache, any other
+    /// read from the API.
     /// </summary>
     private void OpenDevice(string serial)
     {
         SearchBox.Text = "";
         SearchBox.ItemsSource = null;
-        PendingLink = DeepLink.For("devices", null, ("search", serial));
-        Navigate("devices", force: true);
-        SyncChecked();
+        OpenDeepLink(DeepLink.For("device", serial));
     }
 
     // ── Host search ─────────────────────────────────────────────────────
@@ -476,7 +688,7 @@ public partial class DashboardView : UserControl
 
     /// <summary>
     /// Open the device that best matches <see cref="DeviceSearch"/>, for the host's
-    /// Return key: the Devices list narrowed to it, as choosing a search result does.
+    /// Return key: its device page, as choosing a search result does.
     /// False, leaving the filtered list on screen, when nothing matches.
     /// </summary>
     public async Task<bool> OpenBestDeviceMatchAsync()
@@ -490,7 +702,8 @@ public partial class DashboardView : UserControl
             d => [d.Name, d.SerialNumber, d.AssetTag, d.Hostname]);
         if (match is null) return false;
 
-        ShowDeviceFilter(match.SerialNumber, bringForward: true);
+        _hostDeviceFilter = match.SerialNumber;
+        OpenDeepLink(DeepLink.For("device", match.SerialNumber));
         return true;
     }
 
@@ -532,8 +745,15 @@ public sealed record DashboardChrome(bool ShowsSearchField = true, bool ShowsBra
 /// One search result, with the matched run of text kept apart from the rest so the
 /// template can weight it without a converter picking the string back apart.
 /// </summary>
-public sealed record DeviceHit(string Serial, string Before, string Match, string After, string Detail)
+public sealed record DeviceHit(string Serial, string Before, string Match, string After, string Detail, string Name = "")
 {
+    /// <summary>
+    /// What a screen reader announces for the suggestion: "name, serial". A record's
+    /// own ToString listed every property, and the suggestion list reads that out.
+    /// </summary>
+    public override string ToString() =>
+        string.IsNullOrWhiteSpace(Name) || Name == Serial ? Serial : $"{Name}, {Serial}";
+
     public static DeviceHit? For(FleetDevice device, string query)
     {
         // Name first, then the identifiers, so a device matched by name shows its
@@ -548,7 +768,7 @@ public sealed record DeviceHit(string Serial, string Before, string Match, strin
                 ? device.SerialNumber
                 : $"{device.Name} · {device.SerialNumber}";
             return new DeviceHit(device.SerialNumber,
-                field[..at], field.Substring(at, query.Length), field[(at + query.Length)..], detail);
+                field[..at], field.Substring(at, query.Length), field[(at + query.Length)..], detail, device.Name);
         }
         return null;
     }

@@ -18,7 +18,7 @@ public sealed class ManagementTab : DeviceTab
 {
     public override string Id => "management";
     public override string Label => "Management";
-    public override string Glyph => "";
+    public override string Glyph => "\uE8D7";
     public override Accent Accent => Accent.Yellow;
     public override string Description => "Device management, enrollment, and configuration profiles";
 
@@ -29,9 +29,82 @@ public sealed class ManagementTab : DeviceTab
     private string _logFilter = "";
     private bool _logsExpanded;
 
+    /// <summary>Which lines the log viewer shows: all, error or warning.</summary>
+    private string _logLevel = "all";
+
+    private DeviceSnapshot? _snapshot;
+    private readonly HashSet<string> _fetchingTools = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _fetchedTools = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Open the log viewer on one tool, at one level -- what a Management Tools Logs
+    /// link names: <c>/device/&lt;serial&gt;?tab=management&amp;tool=installs&amp;level=error</c>.
+    /// </summary>
+    public void ShowLogs(string? tool, string? level)
+    {
+        _logsExpanded = true;
+        if (!string.IsNullOrWhiteSpace(tool)) _activeLogTool = tool;
+        _logLevel = (level ?? "").ToLowerInvariant() switch
+        {
+            "error" or "errors" => "error",
+            "warning" or "warnings" or "warn" => "warning",
+            _ => "all",
+        };
+        _logFilter = "";
+        Invalidate();
+    }
+
+    /// <summary>
+    /// A Mac's management report: the log viewer, whose roots are the same shape on
+    /// both platforms, then the rest of the module as the Mac sent it.
+    /// </summary>
+    private DeviceSnapshot? _macLogsFor;
+    private ManagementLogs? _macLogs;
+
+    /// <summary>
+    /// A Mac's log roots: from the Windows class when it read, else straight from the
+    /// module. Kept per report, because the viewer puts fetched tails into it.
+    /// </summary>
+    private ManagementLogs? MacLogs(DeviceSnapshot s)
+    {
+        if (!ReferenceEquals(_macLogsFor, s))
+        {
+            _macLogsFor = s;
+            _macLogs = s.Management?.Logs is { Roots.Count: > 0 } read ? read
+                : s.RawModules.TryGetValue("management", out var raw) ? RemoteDevice.LogsFrom(raw) : null;
+        }
+        return _macLogs;
+    }
+
+    protected override UIElement BuildMac(DeviceSnapshot s)
+    {
+        if (!ReferenceEquals(_snapshot, s)) { _fetchedTools.Clear(); _fetchingTools.Clear(); }
+        _snapshot = s;
+        var page = new StackPanel();
+        page.Children.Add(Ui.TabHeader("Device Management Service", "Enrollment, Policies, and Identity Status", Glyph, Accent));
+        if (MacLogs(s) is { Roots.Count: > 0 } logs)
+        {
+            var host = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 0, 0, 16) };
+            void Render() => host.Content = LogsCard(logs, Render);
+            Render();
+            page.Children.Add(host);
+        }
+        // The rest of the module in the Mac layout when it is ported, else as sent.
+        if (Mac.MacManagementView.Build(s) is { } native) page.Children.Add(native);
+        else AddMacModules(page, s);
+        return page;
+    }
+
     protected override UIElement Build(DeviceSnapshot s)
     {
         if (!s.HasModule("management") || s.Management is null) return ModuleMissing("management", s);
+        if (!ReferenceEquals(_snapshot, s))
+        {
+            // A new report brings new log roots, without tails for a fleet device.
+            _fetchedTools.Clear();
+            _fetchingTools.Clear();
+        }
+        _snapshot = s;
         var m = s.Management;
         var page = new StackPanel();
         void Add(UIElement e, double top = 24) { if (e is FrameworkElement fe && page.Children.Count > 0) fe.Margin = new Thickness(0, top, 0, 0); page.Children.Add(e); }
@@ -87,7 +160,7 @@ public sealed class ManagementTab : DeviceTab
         {
             var rows = intune.Select(p => new PolicyRow(DeviceSnapshot.FirstNonEmpty(p.PolicyName, p.PolicyId) ?? "", p.PolicyType ?? "", p.Platform ?? "", Format.OrDash(p.Status), p.Settings?.Count ?? 0, p.LastSync is null ? "—" : Format.RelativeTime(p.LastSync))).ToList();
             Add(Table.Card("Intune Policies", $"{Format.Plural(rows.Count, "policy").Replace("policys", "policies")} assigned by the MDM channel", rows, null, "",
-                Col.Text("Policy", "Name", star: true), Col.Text("Type", "Type", 160), Col.Text("Platform", "Platform", 110), Col.Text("Status", "Status", 110), Col.Text("Settings", "SettingCount", 80), Col.Text("Last Sync", "LastSync", 130)));
+                Col.Text("Policy", "Name", star: true), Col.Text("Type", "Type", 160), Col.Platform("Platform", "Platform", 110), Col.Text("Status", "Status", 110), Col.Text("Settings", "SettingCount", 80), Col.Text("Last Sync", "LastSync", 130)));
         }
         if (m.CompliancePolicies is { Count: > 0 } compliance)
         {
@@ -306,9 +379,18 @@ public sealed class ManagementTab : DeviceTab
         ["encryption"] = "Crypt Escrow", ["users"] = "ManageUsers", ["utilities"] = "Utilities",
     };
 
-    private static string ProductName(LogRoot root)
+    // A Mac's roots are the Mac products: Munki, Outset and swiftDialog.
+    private static readonly Dictionary<string, string> MacProductNames = new(StringComparer.OrdinalIgnoreCase)
     {
-        if (ProductNames.TryGetValue(root.Tool ?? "", out var name)) return name;
+        ["installs"] = "Munki", ["bootstrap"] = "BootstrapMate", ["reports"] = "ReportMate", ["state"] = "Outset",
+        ["encryption"] = "Crypt", ["users"] = "ManageUsers", ["utilities"] = "Utilities", ["notifications"] = "swiftDialog",
+    };
+
+    private bool IsMacDevice => Shared.PlatformIcon.Kind(_snapshot?.Platform) == "mac";
+
+    private string ProductName(LogRoot root)
+    {
+        if ((IsMacDevice ? MacProductNames : ProductNames).TryGetValue(root.Tool ?? "", out var name)) return name;
         var stripped = Regex.Replace(root.Name ?? "", "^Managed\\s*", "", RegexOptions.IgnoreCase).Trim();
         return stripped.Length > 0 ? stripped : Format.Capitalize(root.Tool);
     }
@@ -319,7 +401,19 @@ public sealed class ManagementTab : DeviceTab
         var totalErrors = roots.Sum(r => r.ErrorCount);
         var totalWarnings = roots.Sum(r => r.WarningCount);
         _activeLogTool ??= roots[0].Tool;
-        var active = roots.FirstOrDefault(r => r.Tool == _activeLogTool) ?? roots[0];
+        var active = roots.FirstOrDefault(r => string.Equals(r.Tool, _activeLogTool, StringComparison.OrdinalIgnoreCase)) ?? roots[0];
+
+        // A fleet device's management module comes without its tails; read the one
+        // root being shown, and draw it again when it lands.
+        var awaitingTails = false;
+        if ((active.Tails?.Count ?? 0) == 0 && _snapshot?.FetchLogRoot is { } fetch && _logsExpanded
+            && !_fetchedTools.Contains(active.Tool ?? ""))
+        {
+            awaitingTails = true;
+            var tool = active.Tool ?? "";
+            if (_fetchingTools.Add(tool))
+                _ = FetchTailsAsync(fetch, logs, tool, rerender);
+        }
 
         var header = new Grid { Margin = new Thickness(20, 12, 20, 12), Cursor = Cursors.Hand, Background = System.Windows.Media.Brushes.Transparent };
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -381,6 +475,18 @@ public sealed class ManagementTab : DeviceTab
         facts.Margin = new Thickness(0, 4, 0, 14);
         body.Children.Add(facts);
 
+        if (awaitingTails)
+        {
+            body.Children.Add(Skeleton.Capped(Skeleton.Pulse(Skeleton.Rows(8)), () =>
+            {
+                _fetchingTools.Remove(active.Tool ?? "");
+                _fetchedTools.Remove(active.Tool ?? "");
+                rerender();
+            }));
+            root.Children.Add(body);
+            return new Border { Style = (Style)Ui.Res("CardStyle"), Child = root };
+        }
+
         // Picker + viewer
         var tails = active.Tails ?? [];
         var files = active.Files ?? [];
@@ -418,9 +524,23 @@ public sealed class ManagementTab : DeviceTab
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         toolbar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var search = new SearchBox("Filter lines", q => { _logFilter = q; rerender(); }) { Text = _logFilter, Margin = new Thickness(0) };
-        toolbar.Children.Add(search);
-        var visible = string.IsNullOrWhiteSpace(_logFilter) ? lines : lines.Where(l => l.Contains(_logFilter, StringComparison.OrdinalIgnoreCase)).ToList();
-        var meta = Ui.Caption((currentFile ?? "") + (lines.Count > 0 ? $"   {(string.IsNullOrWhiteSpace(_logFilter) ? $"last {lines.Count} lines" : $"{visible.Count} of {lines.Count} lines")}{(tail?.Truncated == true ? ", truncated" : "")}" : ""));
+        var filters = new StackPanel { Orientation = Orientation.Horizontal };
+        filters.Children.Add(search);
+        var levels = Ui.Segmented([("all", "All"), ("error", "Errors"), ("warning", "Warnings")], _logLevel,
+            key => { _logLevel = key; rerender(); });
+        levels.Margin = new Thickness(10, 0, 0, 0);
+        filters.Children.Add(levels);
+        toolbar.Children.Add(filters);
+        var visible = lines
+            .Where(l => string.IsNullOrWhiteSpace(_logFilter) || l.Contains(_logFilter, StringComparison.OrdinalIgnoreCase))
+            .Where(l => _logLevel switch
+            {
+                "error" => ErrorLine.IsMatch(l),
+                "warning" => WarningLine.IsMatch(l),
+                _ => true,
+            })
+            .ToList();
+        var meta = Ui.Caption((currentFile ?? "") + (lines.Count > 0 ? $"   {(string.IsNullOrWhiteSpace(_logFilter) && _logLevel == "all" ? $"last {lines.Count} lines" : $"{visible.Count} of {lines.Count} lines")}{(tail?.Truncated == true ? ", truncated" : "")}" : ""));
         meta.VerticalAlignment = VerticalAlignment.Center; meta.Margin = new Thickness(12, 0, 12, 0); meta.TextTrimming = TextTrimming.CharacterEllipsis; meta.TextWrapping = TextWrapping.NoWrap;
         Grid.SetColumn(meta, 1);
         toolbar.Children.Add(meta);
@@ -434,6 +554,29 @@ public sealed class ManagementTab : DeviceTab
         body.Children.Add(layout);
         root.Children.Add(body);
         return new Border { Style = (Style)Ui.Res("CardStyle"), Child = root };
+    }
+
+    /// <summary>Read one root's tails from the API and put them in place of the bare root.</summary>
+    private async Task FetchTailsAsync(Func<string, CancellationToken, Task<LogRoot?>> fetch, ManagementLogs logs, string tool, Action rerender)
+    {
+        var root = await fetch(tool, CancellationToken.None);
+        _fetchingTools.Remove(tool);
+        _fetchedTools.Add(tool);
+        if (root is not null && logs.Roots is { } roots)
+        {
+            var index = roots.FindIndex(r => string.Equals(r.Tool, tool, StringComparison.OrdinalIgnoreCase));
+            if (index >= 0)
+            {
+                // Keep the counts the module reported if the root left them out.
+                if (root.ErrorCount == 0 && root.WarningCount == 0)
+                {
+                    root.ErrorCount = roots[index].ErrorCount;
+                    root.WarningCount = roots[index].WarningCount;
+                }
+                roots[index] = root;
+            }
+        }
+        rerender();
     }
 
     private static FrameworkElement LatestSession(LogSessionSummary ls)

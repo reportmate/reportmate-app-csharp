@@ -1,0 +1,73 @@
+{
+ "card": "appUsage",
+ "platform": "all",
+ "includeArchived": false,
+ "generatedAt": "2026-10-22T18:00:00+00:00",
+ "data": {
+  "generatedAt": "2026-10-22T18:00:00+00:00",
+  "platform": "all",
+  "days": 30,
+  "filters": {
+   "usages": [
+    "Shared"
+   ],
+   "catalogs": []
+  },
+  "available": {
+   "usages": [
+    {
+     "value": "Shared",
+     "devices": 40
+    },
+    {
+     "value": "Assigned",
+     "devices": 60
+    }
+   ],
+   "catalogs": [
+    {
+     "value": "Production",
+     "devices": 90
+    }
+   ]
+  },
+  "link": {
+   "path": "/applications",
+   "params": {
+    "type": "usage",
+    "period": "30",
+    "usages": "Shared"
+   }
+  },
+  "apps": [
+   {
+    "name": "Adobe Photoshop 2026",
+    "totalHours": 900.5,
+    "activeHours": 400.0,
+    "devices": 45,
+    "activeDevices": 40,
+    "link": {
+     "path": "/applications/usage/Adobe%20Photoshop%202026",
+     "params": {
+      "days": "30",
+      "usages": "Shared"
+     }
+    }
+   },
+   {
+    "name": "Word",
+    "totalHours": 300.0,
+    "activeHours": 200.0,
+    "devices": 60,
+    "activeDevices": 55,
+    "link": {
+     "path": "/applications/usage/Word",
+     "params": {
+      "days": "30",
+      "usages": "Shared"
+     }
+    }
+   }
+  ]
+ }
+}

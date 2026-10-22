@@ -29,7 +29,54 @@ public abstract class DeviceTab : ContentControl
     {
         if (ReferenceEquals(_rendered, snapshot)) return;
         _rendered = snapshot;
-        Content = Build(snapshot);
+        Content = snapshot.IsRemoteMac && MacModules.Length > 0 ? BuildMac(snapshot) : Build(snapshot);
+    }
+
+    /// <summary>
+    /// The modules this tab draws from, for a Mac's report. Empty for a tab whose
+    /// data is the same shape on both platforms (Events), which draws as usual.
+    /// </summary>
+    protected virtual string[] MacModules => [Id];
+
+    /// <summary>
+    /// A fleet Mac's report. The Mac client sends its own module shapes, which this
+    /// app's module classes -- the Windows client's -- only partly read, so the tab
+    /// shows every value the Mac sent, by module, rather than a Windows layout with
+    /// gaps where the Mac's fields did not map.
+    /// </summary>
+    protected virtual UIElement BuildMac(DeviceSnapshot s)
+    {
+        // The tab's own Mac layout when it has one, as the web and Mac apps draw it.
+        try
+        {
+            if (Mac.MacViews.Build(Id, s) is { } native) return native;
+        }
+        catch (Exception ex)
+        {
+            return Ui.Card(Ui.EmptyState($"This Mac's {Id} data could not be drawn: {ex.Message}"));
+        }
+        var page = new StackPanel();
+        page.Children.Add(Ui.TabHeader(Label, Description, Glyph, Accent));
+        AddMacModules(page, s);
+        return page;
+    }
+
+    protected void AddMacModules(Panel page, DeviceSnapshot s)
+    {
+        var note = Ui.Caption("This Mac's report as it sent it. The Mac and web apps draw these fields in their own layouts.");
+        note.TextWrapping = TextWrapping.Wrap;
+        note.Margin = new Thickness(0, 0, 0, 12);
+        page.Children.Add(note);
+        foreach (var module in MacModules)
+        {
+            UIElement card = s.RawModules.TryGetValue(module, out var raw)
+                ? Ui.StatBlock(Format.Capitalize(module),
+                    s.CollectedAtFor(module) is { } at ? $"Collected {Format.RelativeTime(at)}" : null,
+                    Glyph, Accent, Views.Shared.JsonTree.Build(raw))
+                : ModuleMissing(module, s);
+            if (card is FrameworkElement fe) fe.Margin = new Thickness(0, 0, 0, 16);
+            page.Children.Add(card);
+        }
     }
 
     public void Invalidate() => _rendered = null;

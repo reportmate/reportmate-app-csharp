@@ -96,7 +96,7 @@ public sealed class CoveragePage : FleetPage
                     [
                         Col.Text("Device", "Device", star: true),
                         Col.Text("Serial", "Serial", 150, mono: true),
-                        Col.Text("Platform", "Platform", 100),
+                        Col.Platform("Platform", "Platform", 100),
                         Col.Text("State", "Bucket", 110),
                         Col.Text("Last usage", "LastUsage", 140),
                         Col.Text("Days dark", "Days", 100, sortBy: "DaysValue"),
@@ -167,8 +167,13 @@ public sealed class AppUsagePage : FleetPage
 
     protected override async Task<UIElement> BuildAsync()
     {
+        // The usage, catalog and location scope a link carries, which the endpoint takes
+        // as is. It takes no platform: the per-device rows say which device each is.
+        var scope = string.Concat(new[] { "usages", "catalogs", "locations" }
+            .Where(k => !string.IsNullOrWhiteSpace(Filter(k)))
+            .Select(k => $"&{k}={Uri.EscapeDataString(Filter(k)!)}"));
         var result = await FleetApiClient.Instance.GetRawAsync(
-            $"/api/v1/applications/usage/by-device?app={Uri.EscapeDataString(_app)}&days={_days}");
+            $"/api/v1/applications/usage/by-device?app={Uri.EscapeDataString(_app)}&days={_days}{scope}");
 
         var page = new StackPanel();
         page.Children.Add(Ui.TabHeader(_app, $"Usage across the fleet over the last {_days} days", "", Accent.Blue));
@@ -238,7 +243,7 @@ public sealed class AppUsagePage : FleetPage
         summary.ValueKind == JsonValueKind.Object && summary.TryGetProperty("totalUsageHours", out var v)
             ? Json.Text(v) : "0";
 
-    private static UIElement Stat(string label, string value)
+    internal static UIElement Stat(string label, string value)
     {
         var body = new StackPanel();
         var n = Ui.Text(value);

@@ -49,6 +49,18 @@ public static class Management
         };
     }
 
+    /// <summary>
+    /// The MDM provider, with Intune's several spellings ("Microsoft Intune",
+    /// "Microsoft Intune (co-managed)") folded into one and no provider read as
+    /// Unmanaged, the way the web management report groups them.
+    /// </summary>
+    public static string Provider(JsonElement row)
+    {
+        var p = Text(Read(row, "provider")).Trim();
+        if (p.Length == 0) return "Unmanaged";
+        return p.StartsWith("Microsoft Intune", StringComparison.OrdinalIgnoreCase) ? "Microsoft Intune" : p;
+    }
+
     // Read inline rather than through the report path resolver: that lives with the
     // report specs, which pull in the UI, and this ladder has to stay testable.
     private static JsonElement? Read(JsonElement? parent, string name) =>

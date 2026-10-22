@@ -42,9 +42,16 @@ public sealed class FleetApiClient
         Malformed,
     }
 
-    public sealed record FleetResult<T>(FleetStatus Status, T? Data, string? Detail)
+    /// <param name="HttpStatus">The response code when the API answered with an error, null otherwise.</param>
+    public sealed record FleetResult<T>(FleetStatus Status, T? Data, string? Detail, int? HttpStatus = null)
     {
         public bool Ok => Status == FleetStatus.Ok && Data is not null;
+
+        /// <summary>
+        /// Worth one more try: the API answered 5xx, or never answered at all. A 4xx
+        /// will say the same thing again, so it is not.
+        /// </summary>
+        public bool Transient => Status == FleetStatus.Unreachable && (HttpStatus is null || HttpStatus >= 500);
     }
 
     /// <summary>
@@ -132,28 +139,51 @@ public sealed class FleetApiClient
         if (string.IsNullOrWhiteSpace(config.ApiUrl))
             return new FleetResult<T>(FleetStatus.NotConfigured, null, FleetSetupHints.MissingSetting(hasApiUrl: false, hostSignIn: false));
 
+        var url = config.ApiUrl.TrimEnd('/') + path;
         var bearer = BearerTokenProvider is { } provider ? await provider(ct) : null;
         if (!string.IsNullOrWhiteSpace(bearer))
-            return await SendAsync<T>(config.ApiUrl.TrimEnd('/') + path,
-                request => request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer), ct);
+            return await SendAsync<T>(url, request => request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearer), ct);
 
+        // Entra sign-in first: a token minted from the operator's own az login and
+        // kept in memory, so no secret has to be stored on the device. When it is not
+        // available here, or the API refuses it, the stored read credential is next.
+        //
         // The runner's ApiKey is a per-client INGEST credential and the API's scope gate
         // refuses it for every read. Sending it anyway would turn a device that has only
         // that key into a 403 on every page, which reads as a broken app rather than as
         // the missing credential it is -- so it is deliberately never used here.
-        var readCredential = FirstNonEmpty(config.ReadApiKey, config.Passphrase);
-        if (readCredential is null)
-            return new FleetResult<T>(FleetStatus.NotConfigured, null,
-                FleetSetupHints.MissingSetting(hasApiUrl: true, hostSignIn: BearerTokenProvider != null));
+        var attempts = new List<(ReadCredential Kind, Action<HttpRequestMessage> Authorize)>();
+        var entra = await EntraSession.Shared.TokenAsync(config.OidcAudience, config.ApiUrlSource, config.ApiUrl, ct);
+        if (entra is not null)
+            attempts.Add((ReadCredential.Entra, r => r.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", entra)));
+        if (!string.IsNullOrWhiteSpace(config.ReadApiKey))
+            attempts.Add((ReadCredential.ApiKey, r => r.Headers.TryAddWithoutValidation("X-API-Key", config.ReadApiKey)));
+        if (!string.IsNullOrWhiteSpace(config.Passphrase))
+            attempts.Add((ReadCredential.Passphrase, r => r.Headers.TryAddWithoutValidation("X-Client-Passphrase", config.Passphrase)));
 
-        return await SendAsync<T>(config.ApiUrl.TrimEnd('/') + path, request =>
+        if (attempts.Count == 0)
         {
-            if (!string.IsNullOrWhiteSpace(config.ReadApiKey))
-                request.Headers.TryAddWithoutValidation("X-API-Key", config.ReadApiKey);
-            else
-                request.Headers.TryAddWithoutValidation("X-Client-Passphrase", config.Passphrase);
-        }, ct);
+            var audience = await EntraSession.Shared.AudienceAsync(config.OidcAudience, config.ApiUrlSource, config.ApiUrl, ct);
+            return new FleetResult<T>(FleetStatus.NotConfigured, null,
+                FleetSetupHints.MissingSetting(hasApiUrl: true, hostSignIn: BearerTokenProvider != null, entraAudience: audience));
+        }
+
+        FleetResult<T>? result = null;
+        var last = attempts[0].Kind;
+        foreach (var (kind, authorize) in attempts)
+        {
+            last = kind;
+            result = await SendAsync<T>(url, authorize, ct);
+            if (result.Status is not (FleetStatus.Unauthorized or FleetStatus.Forbidden)) break;
+            // A refused token may simply have expired early; the next read mints afresh.
+            if (kind == ReadCredential.Entra) EntraSession.Shared.Invalidate();
+        }
+        if (last == ReadCredential.Entra && result!.Status == FleetStatus.Forbidden)
+            return result with { Detail = "You are signed in with Entra, but your account has no role that can read the fleet on this API." };
+        return result!;
     }
+
+    private enum ReadCredential { Entra, ApiKey, Passphrase }
 
     private static async Task<FleetResult<T>> SendAsync<T>(string url, Action<HttpRequestMessage> authorize, CancellationToken ct) where T : class
     {
@@ -169,7 +199,7 @@ public sealed class FleetApiClient
                 return new FleetResult<T>(FleetStatus.Forbidden, null,
                     "This device's API key is an ingest key and is not allowed to read fleet data.");
             if (!response.IsSuccessStatusCode)
-                return new FleetResult<T>(FleetStatus.Unreachable, null, $"The API returned {(int)response.StatusCode}.");
+                return new FleetResult<T>(FleetStatus.Unreachable, null, $"The API returned {(int)response.StatusCode}.", (int)response.StatusCode);
 
             await using var stream = await response.Content.ReadAsStreamAsync(ct);
             var data = await JsonSerializer.DeserializeAsync<T>(stream, JsonOptions, ct);
@@ -190,31 +220,6 @@ public sealed class FleetApiClient
             return new FleetResult<T>(FleetStatus.Malformed, null, ex.Message);
         }
     }
-}
-
-/// <summary>
-/// Reads a JSON number or boolean into a string property. The API types some
-/// identifiers as numbers -- an event's id is an integer -- and the default
-/// converter throws on those, which failed the whole payload and took the
-/// Dashboard and Events pages down over one field neither of them displays.
-/// </summary>
-public sealed class TolerantStringConverter : System.Text.Json.Serialization.JsonConverter<string>
-{
-    public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
-        reader.TokenType switch
-        {
-            JsonTokenType.String => reader.GetString(),
-            JsonTokenType.Number => reader.TryGetInt64(out var l)
-                ? l.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                : reader.GetDouble().ToString(System.Globalization.CultureInfo.InvariantCulture),
-            JsonTokenType.True => "true",
-            JsonTokenType.False => "false",
-            JsonTokenType.Null => null,
-            _ => throw new JsonException($"Cannot read a {reader.TokenType} as a string."),
-        };
-
-    public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options) =>
-        writer.WriteStringValue(value);
 }
 
 /// <summary>One device as the fleet list and dashboard widgets see it.</summary>

@@ -2,20 +2,21 @@
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:ui="http://schemas.modernwpf.com/2019"
+      xmlns:shared="clr-namespace:ReportMate.App.Views.Shared"
       Foreground="{DynamicResource TextPrimaryBrush}">
     <Page.Resources>
         <Style x:Key="FieldLabel" TargetType="TextBlock" BasedOn="{StaticResource StatLabelStyle}">
             <Setter Property="Margin" Value="0,14,0,4" />
         </Style>
+        <!-- Sections take the card's full width; the JSON viewers in Inventory
+             Mapping and Security Rules are the content that most wants it. -->
         <Style x:Key="SectionBody" TargetType="StackPanel">
-            <Setter Property="MaxWidth" Value="620" />
-            <Setter Property="HorizontalAlignment" Value="Left" />
             <Setter Property="Margin" Value="4,8,4,4" />
         </Style>
     </Page.Resources>
 
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel MaxWidth="1040" Margin="28,24,28,32" HorizontalAlignment="Center">
+        <StackPanel Margin="28,24,28,32">
 
             <StackPanel Margin="0,0,0,18">
                 <TextBlock Text="Settings" Style="{StaticResource PageTitleTextStyle}" />
@@ -53,7 +54,10 @@
             <Border Style="{StaticResource CardStyle}" Padding="22" Margin="0,4,0,0">
                 <Grid>
                     <StackPanel x:Name="GeneralBody" Style="{StaticResource SectionBody}">
-                    <StackPanel Style="{StaticResource SectionBody}">
+                    <!-- Appearance, Connection and About side by side when the window
+                         has room, stacked when it does not. -->
+                    <shared:UniformCardPanel MinItemWidth="400" Gap="40" MaxColumns="3">
+                    <StackPanel>
                         <TextBlock Text="Appearance" Style="{StaticResource SectionHeaderStyle}" Margin="0,4,0,0" />
                         <TextBlock Text="Theme" Style="{StaticResource FieldLabel}" />
                         <ComboBox x:Name="ThemeBox" Width="240" HorizontalAlignment="Left"
@@ -62,8 +66,10 @@
                             <ComboBoxItem Content="Light" Tag="Light" />
                             <ComboBoxItem Content="Dark" Tag="Dark" />
                         </ComboBox>
+                    </StackPanel>
 
-                        <TextBlock Text="Connection" Style="{StaticResource SectionHeaderStyle}" Margin="0,22,0,0" />
+                    <StackPanel>
+                        <TextBlock Text="Connection" Style="{StaticResource SectionHeaderStyle}" Margin="0,4,0,0" />
                         <TextBlock Text="Where this machine reads the fleet from. Stored on this machine only."
                                    Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" Margin="0,2,0,0" />
 
@@ -75,6 +81,10 @@
                                     Visibility="{Binding IsApiUrlLocked, Converter={StaticResource BoolToVisibility}}">
                             <TextBlock Text="Managed by Policy" Style="{StaticResource CaptionTextStyle}" />
                         </StackPanel>
+
+                        <TextBlock Text="Sign-in" Style="{StaticResource FieldLabel}" />
+                        <TextBlock Text="{Binding SignInSummary, Mode=OneWay}" Style="{StaticResource CaptionTextStyle}"
+                                   TextWrapping="Wrap" />
 
                         <!--
                             The passphrase, not the API key. The runner's key is an
@@ -91,13 +101,17 @@
                             <TextBlock Text="Managed by Policy" Style="{StaticResource CaptionTextStyle}" />
                         </StackPanel>
 
-                        <TextBlock Text="About" Style="{StaticResource SectionHeaderStyle}" Margin="0,22,0,0" />
+                    </StackPanel>
+
+                    <StackPanel>
+                        <TextBlock Text="About" Style="{StaticResource SectionHeaderStyle}" Margin="0,4,0,0" />
                         <TextBlock Text="{Binding VersionDisplay}" Style="{StaticResource CaptionTextStyle}" Margin="0,6,0,0" />
                         <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                            <ui:HyperlinkButton Content="Documentation" NavigateUri="https://github.com/reportmate/reportmate-app-csharp" />
-                            <ui:HyperlinkButton Content="Report Issue" NavigateUri="https://github.com/reportmate/reportmate-app-csharp/issues" Margin="12,0,0,0" />
+                            <ui:HyperlinkButton Content="Documentation" Tag="https://github.com/reportmate/reportmate-app-csharp" Click="OnOpenLink" />
+                            <ui:HyperlinkButton Content="Report Issue" Tag="https://github.com/reportmate/reportmate-app-csharp/issues" Click="OnOpenLink" Margin="12,0,0,0" />
                         </StackPanel>
                     </StackPanel>
+                    </shared:UniformCardPanel>
                     </StackPanel>
                     <StackPanel x:Name="InventoryBody" Style="{StaticResource SectionBody}" Visibility="Collapsed" />
                     <StackPanel x:Name="SecurityBody" Style="{StaticResource SectionBody}" Visibility="Collapsed" />

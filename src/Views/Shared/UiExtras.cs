@@ -8,7 +8,11 @@ namespace ReportMate.App.Views.Shared;
 public static partial class Ui
 {
     /// <summary>Tab page header: icon tile, title, subtitle, optional element on the right.</summary>
-    public static Grid TabHeader(string title, string subtitle, string glyph, Accent accent, UIElement? right = null)
+    public static Grid TabHeader(string title, string subtitle, string glyph, Accent accent, UIElement? right = null) =>
+        TabHeader(Text(title, "PageTitleTextStyle"), subtitle, glyph, accent, right);
+
+    /// <summary>A page header whose title is a control, such as a segmented switch between two views.</summary>
+    public static Grid TabHeader(UIElement title, string subtitle, string glyph, Accent accent, UIElement? right = null)
     {
         var grid = new Grid { Margin = new Thickness(0, 0, 0, 20) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -24,8 +28,11 @@ public static partial class Ui
         ((FrameworkElement)tile.Child).HorizontalAlignment = HorizontalAlignment.Center;
         grid.Children.Add(tile);
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        titles.Children.Add(Text(title, "PageTitleTextStyle"));
-        titles.Children.Add(Text(subtitle, "SubtitleTextStyle"));
+        if (title is FrameworkElement { } t && title is not TextBlock) t.HorizontalAlignment = HorizontalAlignment.Left;
+        titles.Children.Add(title);
+        var sub = Text(subtitle, "SubtitleTextStyle");
+        if (title is not TextBlock) sub.Margin = new Thickness(0, 6, 0, 0);
+        titles.Children.Add(sub);
         Grid.SetColumn(titles, 1);
         grid.Children.Add(titles);
         if (right is not null)

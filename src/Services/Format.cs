@@ -50,6 +50,22 @@ public static class Format
 
     public static string ShortDateTime(string? timestamp) => ShortDateTime(ParseDate(timestamp));
 
+    /// <summary>The dash shown for a number that cannot be shown: missing, NaN, infinite or out of range.</summary>
+    public const string Dash = "—";
+
+    /// <summary>
+    /// A whole number from an API double, or null when it is NaN, infinite or beyond
+    /// an int. A cast does not throw but turns those into int.MinValue, and
+    /// Convert.ToInt32 throws: the API's numbers arrive as JSON or strings the device
+    /// wrote, and a string such as "NaN" or "1e400" parses as a double.
+    /// </summary>
+    public static int? ToInt(double? value) =>
+        value is { } d && double.IsFinite(d) && d >= int.MinValue && d <= int.MaxValue ? (int)d : null;
+
+    /// <summary>As <see cref="ToInt"/>, for a long.</summary>
+    public static long? ToLong(double? value) =>
+        value is { } d && double.IsFinite(d) && d >= long.MinValue && d < long.MaxValue ? (long)d : null;
+
     public static DateTime? ParseDate(string? value)
     {
         if (string.IsNullOrWhiteSpace(value) || value is "null" or "undefined") return null;
@@ -57,6 +73,8 @@ public static class Format
             && !value.Contains('-') && !value.Contains(':'))
         {
             var ms = unix < 10_000_000_000 ? unix * 1000 : unix;
+            // Outside what a date can hold the value is not a time at all.
+            if (!double.IsFinite(ms) || ms < -62_135_596_800_000 || ms > 253_402_300_799_999) return null;
             return DateTimeOffset.FromUnixTimeMilliseconds((long)ms).LocalDateTime;
         }
         if (DateTime.TryParse(value, CultureInfo.InvariantCulture,
@@ -75,7 +93,8 @@ public static class Format
         return $"{Math.Round(value, decimals).ToString(CultureInfo.InvariantCulture)} {sizes[i]}";
     }
 
-    public static string Bytes(double bytes, int decimals = 2) => Bytes((long)bytes, decimals);
+    public static string Bytes(double bytes, int decimals = 2) =>
+        ToLong(bytes) is { } whole ? Bytes(whole, decimals) : Dash;
 
     public static string Gigabytes(long bytes)
     {
@@ -83,8 +102,12 @@ public static class Format
         return $"{Math.Round(bytes / 1024.0 / 1024 / 1024, 1).ToString(CultureInfo.InvariantCulture)} GB";
     }
 
+    /// <summary>Whether a number of seconds can be a TimeSpan: TimeSpan.FromSeconds throws past about 29,000 years.</summary>
+    private static bool IsDuration(double seconds) => double.IsFinite(seconds) && seconds < TimeSpan.MaxValue.TotalSeconds;
+
     public static string Duration(double seconds)
     {
+        if (double.IsNaN(seconds) || !IsDuration(Math.Max(0, seconds))) return Dash;
         if (seconds <= 0) return "0s";
         var ts = TimeSpan.FromSeconds(seconds);
         if (ts.TotalHours >= 1) return $"{(int)ts.TotalHours}h {ts.Minutes}m";
@@ -94,6 +117,7 @@ public static class Format
 
     public static string DurationLong(double seconds)
     {
+        if (double.IsNaN(seconds) || !IsDuration(Math.Max(0, seconds))) return Dash;
         if (seconds <= 0) return "0 minutes";
         var ts = TimeSpan.FromSeconds(seconds);
         if (ts.TotalDays >= 1) return $"{(int)ts.TotalDays}d {ts.Hours}h {ts.Minutes}m";

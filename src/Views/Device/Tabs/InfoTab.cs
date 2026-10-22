@@ -9,14 +9,19 @@ namespace ReportMate.App.Views.Device.Tabs;
 public sealed class InfoTab : DeviceTab
 {
     public override string Id => "info";
+
+    protected override string[] MacModules => ["inventory", "system", "hardware"];
     public override string Label => "Info";
-    public override string Glyph => "";
+    public override string Glyph => "\uE946";
     public override Accent Accent => Accent.Mono;
     public override string Description => "Device information, management status, and system details";
 
     protected override UIElement Build(DeviceSnapshot s)
     {
+        // Up to all six across: a desktop-width window shows the whole overview in
+        // one or two rows instead of three columns and a band of empty margin.
         var grid = Ui.CardGrid(400, 24);
+        grid.MaxColumns = 6;
         grid.Children.Add(InventoryWidget.Build(s));
         grid.Children.Add(SystemWidget.Build(s));
         grid.Children.Add(HardwareWidget.Build(s));

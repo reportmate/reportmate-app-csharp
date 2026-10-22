@@ -15,7 +15,7 @@ public sealed class SecurityTab : DeviceTab
 {
     public override string Id => "security";
     public override string Label => "Security";
-    public override string Glyph => "";
+    public override string Glyph => "\uE72E";
     public override Accent Accent => Accent.Red;
     public override string Description => "Security status and compliance";
 
@@ -53,6 +53,7 @@ public sealed class SecurityTab : DeviceTab
         Add(Ui.TabHeader("Security Overview", "Windows protection and compliance status", Glyph, Accent, right), 0);
 
         var grid = Ui.CardGrid(360, 20);
+        grid.MaxColumns = 6;
         grid.Children.Add(TamperingCard(sec));
         grid.Children.Add(ProtectionCard(sec));
         grid.Children.Add(DetectionCard(sec));

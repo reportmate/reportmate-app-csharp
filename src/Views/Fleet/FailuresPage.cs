@@ -46,6 +46,8 @@ public sealed class FailuresPage : FleetPage
             "repaired check-in", Tone.Info, Accent.Cyan),
     };
 
+    protected override UIElement LoadingBody() => Skeleton.FailuresBody();
+
     private string _outcome = "rejected";
     private int _hours = 168;
     private string? _reason;
@@ -163,7 +165,7 @@ public sealed class FailuresPage : FleetPage
             (r, q) => r.Matches(q),
             [
                 Col.Text("Device", "Device", star: true, sub: "Serial"),
-                Col.Text("Platform", "Platform", 100),
+                Col.Platform("Platform", "Platform", 100),
                 Col.Text("Reason", "Reason", 170),
                 Col.Text("Type", "Kind", 100),
                 Col.Text("Status", "Status", 80),

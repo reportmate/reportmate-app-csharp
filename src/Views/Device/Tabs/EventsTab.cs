@@ -15,8 +15,11 @@ namespace ReportMate.App.Views.Device.Tabs;
 public sealed class EventsTab : DeviceTab
 {
     public override string Id => "events";
+
+    // Events are the same shape from either platform.
+    protected override string[] MacModules => [];
     public override string Label => "Events";
-    public override string Glyph => "";
+    public override string Glyph => "\uE81C";
     public override Accent Accent => Accent.Mono;
     public override string Description => "Event history and activity log";
 
@@ -46,20 +49,25 @@ public sealed class EventsTab : DeviceTab
         if (events.Count == 0)
         {
             page.Children.Add(Ui.TabHeader("Reporting Events", "Device activity and event monitoring", Glyph, Accent));
-            page.Children.Add(Ui.Card(Ui.EmptyState("No events have been recorded for this device yet. Each collection run writes its events to the local cache.", "")));
+            page.Children.Add(Ui.Card(Ui.EmptyState(s.IsRemote
+                ? "No events have been recorded for this device yet."
+                : "No events have been recorded for this device yet. Each collection run writes its events to the local cache.", "")));
             return page;
         }
 
         var bundles = BundleEvents(events);
-        var counts = events.GroupBy(Kind).ToDictionary(g => g.Key, g => g.Count());
+        // Everything on this tab counts the rows the list shows: routine events folded
+        // into one row are one entry, so the header, the chips and the list agree.
+        bool Matches(Bundle b, string kind) => b.Kind == kind || b.Kinds.Contains(kind);
+        var counts = Filters.ToDictionary(f => f.Key, f => bundles.Count(b => Matches(b, f.Key)));
 
         var list = new StackPanel();
         var subtitle = Ui.Text("", "SubtitleTextStyle");
         var filterBar = new StackPanel { Orientation = Orientation.Horizontal };
         void Render()
         {
-            var shown = _filter == "all" ? bundles : bundles.Where(b => b.Kind == _filter || b.Kinds.Contains(_filter)).ToList();
-            subtitle.Text = _filter == "all" ? $"{bundles.Count} total events" : $"{shown.Count} {_filter} events";
+            var shown = _filter == "all" ? bundles : bundles.Where(b => Matches(b, _filter)).ToList();
+            subtitle.Text = _filter == "all" ? $"{shown.Count} total events" : $"{shown.Count} {_filter} events";
             list.Children.Clear();
             foreach (var b in shown) list.Children.Add(Row(b));
             if (shown.Count == 0) list.Children.Add(Ui.Card(Ui.EmptyState($"No {_filter} events found.")));

@@ -13,6 +13,8 @@ public sealed class DevicesPage : FleetPage
 
     private FilteredTable<DeviceRow>? _table;
 
+    protected override UIElement LoadingBody() => Skeleton.ListBody(8);
+
     /// <summary>
     /// Filter the list by the host app's search field, when the dashboard draws
     /// no search of its own (<see cref="DashboardChrome.ShowsSearchField"/>).
@@ -52,7 +54,7 @@ public sealed class DevicesPage : FleetPage
                  {
                      ("usage", Filter("usage")), ("catalog", Filter("catalog")),
                      ("area", Filter("area")), ("location", Filter("location")),
-                     ("fleet", Filter("fleet")),
+                     ("fleet", Filter("fleet")), ("platform", Filter("platform")),
                  })
         {
             if (value is null) continue;
@@ -97,7 +99,7 @@ public sealed class DevicesPage : FleetPage
                 Col.Text("Device", "Name", star: true, sub: "Department"),
                 Col.Pill("Status", "Status", "StatusTone", 110),
                 Col.Text("Serial", "Serial", 160, mono: true),
-                Col.Text("Platform", "Platform", 110),
+                Col.Platform("Platform", "Platform", 120),
                 Col.Text("OS", "OsVersion", 130),
                 Col.Text("Usage", "Usage", 120),
                 Col.Text("Location", "Location", 130),
@@ -115,11 +117,14 @@ public sealed class DevicesPage : FleetPage
                 new("active", "Active", rows.Count(r => r.Liveness == DeviceLiveness.Active)),
                 new("stale", "Stale", rows.Count(r => r.Liveness == DeviceLiveness.Stale)),
                 new("missing", "Missing", rows.Count(r => r.Liveness == DeviceLiveness.Missing)),
+                // Fleet Status's Archived bar links here.
+                new("archived", "Archived", rows.Count(r => r.Liveness == DeviceLiveness.Archived)),
             ], (r, k) => k switch
             {
                 "active" => r.Liveness == DeviceLiveness.Active,
                 "stale" => r.Liveness == DeviceLiveness.Stale,
                 "missing" => r.Liveness == DeviceLiveness.Missing,
+                "archived" => r.Liveness == DeviceLiveness.Archived,
                 _ => true,
             }, initial: wantedStatus is null ? "all" : wantedStatus.ToLowerInvariant())
             // Usage and catalog, the two inventory dimensions with few enough values
@@ -133,10 +138,25 @@ public sealed class DevicesPage : FleetPage
             .Filter(Options(rows, r => r.Usage, "Any usage"), (r, k) => r.Usage == k)
             .Filter(Options(rows, r => r.Catalog, "Any catalog"), (r, k) => r.Catalog == k)
             .WithQuery(query)
+            .WithRowLink(r => string.IsNullOrWhiteSpace(r.Serial) ? null : DeepLink.For("device", r.Serial))
             .WithSearchBox(!hostSearch)
             .Build();
 
         table.Margin = new Thickness(0, 20, 0, 0);
+
+        // Management Tools Errors links here with the tool and level it counted. The
+        // device list carries no log data to narrow by, so say so rather than show
+        // a list that silently ignores the link.
+        if (Filter("tool") is { } tool)
+        {
+            var level = Filter("level") ?? "error";
+            var note = Ui.Caption($"Opened from Management Tools Errors for {tool} {level}s. The device list cannot narrow by a "
+                + "tool's log yet, so every device is listed; the dashboard card counts the devices with them.");
+            note.TextWrapping = TextWrapping.Wrap;
+            var card = Ui.Card(note);
+            card.Margin = new Thickness(0, 16, 0, 0);
+            page.Children.Add(card);
+        }
         page.Children.Add(table);
         return page;
     }
@@ -205,6 +225,12 @@ public sealed class DevicesPage : FleetPage
     /// <summary>Match one of the inventory dimensions a link can narrow the list by.</summary>
     private static bool Matches(FleetDevice d, string key, string value)
     {
+        // The dashboard's platform bars link here with the name they show.
+        if (key == "platform")
+            return value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Any(v => Platform(d).Equals(v, StringComparison.OrdinalIgnoreCase)
+                          || (v.Equals("mac", StringComparison.OrdinalIgnoreCase) && Platform(d) == "macOS"));
+
         var actual = key switch
         {
             "usage" => d.Usage,

@@ -11,7 +11,7 @@ public sealed class ApplicationsTab : DeviceTab
 {
     public override string Id => "applications";
     public override string Label => "Applications";
-    public override string Glyph => "";
+    public override string Glyph => "\uE71D";
     public override Accent Accent => Accent.Blue;
     public override string Description => "Installed applications and packages";
 

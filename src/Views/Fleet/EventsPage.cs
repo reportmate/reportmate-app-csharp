@@ -12,6 +12,8 @@ public sealed class EventsPage : FleetPage
     protected override (string, string, Accent)? Heading =>
         ("Events", "What the fleet has reported", Accent.Cyan);
 
+    protected override UIElement LoadingBody() => Skeleton.ListBody(5);
+
     protected override async Task<UIElement> BuildAsync()
     {
         var result = await FleetApiClient.Instance.GetEventsAsync(500);
@@ -115,7 +117,12 @@ public sealed class EventsPage : FleetPage
             return host;
         }
 
-        host.Children.Add(Ui.Caption("Loading payload..."));
+        host.Children.Add(Skeleton.Capped(Skeleton.Pulse(Skeleton.Rows(3)), () =>
+        {
+            host.Children.Clear();
+            host.Children.Add(Skeleton.Pulse(Skeleton.Rows(3)));
+            _ = Fill(host, row.Id);
+        }));
         _ = Fill(host, row.Id);
         return host;
     }

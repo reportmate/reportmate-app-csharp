@@ -15,7 +15,7 @@ public sealed class IdentityTab : DeviceTab
 {
     public override string Id => "identity";
     public override string Label => "Identity";
-    public override string Glyph => "";
+    public override string Glyph => "\uE77B";
     public override Accent Accent => Accent.Indigo;
     public override string Description => "User accounts, sessions, and identity management";
 

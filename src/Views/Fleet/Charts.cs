@@ -9,7 +9,8 @@ public static class Charts
 {
     /// <summary>A labelled proportion bar. Bars, not pie slices: comparing lengths on a
     /// shared baseline is easier than comparing angles, and it scales past a few slices.</summary>
-    public static UIElement Bar(string label, int count, int total, Tone tone)
+    /// <param name="platform">Draws that platform's logo before the label.</param>
+    public static UIElement Bar(string label, int count, int total, Tone tone, string? platform = null)
     {
         var fraction = total <= 0 ? 0 : (double)count / total;
 
@@ -19,7 +20,7 @@ public static class Charts
         var name = Ui.Text(label);
         name.FontSize = 12.5;
         name.TextTrimming = TextTrimming.CharacterEllipsis;
-        head.Children.Add(name);
+        head.Children.Add(PlatformIcon.Labelled(platform, name, 12));
         var value = Ui.Caption($"{count:N0}  ·  {fraction:P0}");
         Grid.SetColumn(value, 1);
         head.Children.Add(value);

@@ -6,6 +6,14 @@ namespace ReportMate.App.ViewModels;
 /// <summary>Header state for the device page; the tabs read the snapshot directly.</summary>
 public partial class DeviceViewModel : ObservableObject
 {
+    /// <summary>The fleet device this page shows, or null for this machine's own report.</summary>
+    public string? RemoteSerial { get; }
+
+    public DeviceViewModel(string? remoteSerial = null) => RemoteSerial = remoteSerial;
+
+    /// <summary>When the report on screen was read.</summary>
+    public DateTime? LoadedAt { get; private set; }
+
     [ObservableProperty] private DeviceSnapshot _snapshot = new();
     [ObservableProperty] private bool _isLoading;
     [ObservableProperty] private string? _error;
@@ -27,7 +35,7 @@ public partial class DeviceViewModel : ObservableObject
         }
     }
 
-    public string LastSeenLabel => Snapshot.CollectedAt is null ? "never" : Format.RelativeTime(Snapshot.CollectedAt);
+    public string LastSeenLabel => (Snapshot.LastSeen ?? Snapshot.CollectedAt) is { } when ? Format.RelativeTime(when) : "never";
 
     /// <summary>
     /// Every module's collection time, newest first, for the Collected pill's
@@ -51,8 +59,8 @@ public partial class DeviceViewModel : ObservableObject
     {
         get
         {
-            if (Snapshot.CollectedAt is null) return null;
-            var hours = (DateTime.Now - Snapshot.CollectedAt.Value).TotalHours;
+            if ((Snapshot.LastSeen ?? Snapshot.CollectedAt) is not { } when) return null;
+            var hours = (DateTime.Now - when).TotalHours;
             return hours > 72 ? "Missing" : hours > 24 ? "Stale" : null;
         }
     }
@@ -63,7 +71,16 @@ public partial class DeviceViewModel : ObservableObject
         Error = null;
         try
         {
-            Snapshot = await DeviceSnapshotStore.Instance.LoadAsync();
+            if (RemoteSerial is null)
+                Snapshot = await DeviceSnapshotStore.Instance.LoadAsync();
+            else
+            {
+                // A failed read keeps the report already on screen.
+                var (snapshot, error) = await RemoteDeviceLoader.LoadAsync(RemoteSerial);
+                if (snapshot is not null) Snapshot = snapshot;
+                Error = error;
+            }
+            if (Error is null) LoadedAt = DateTime.UtcNow;
         }
         catch (Exception ex)
         {

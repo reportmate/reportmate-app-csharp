@@ -18,7 +18,7 @@ public static class SystemWidget
         var osLabel = OsLabel(os);
         var marketing = string.IsNullOrWhiteSpace(os.DisplayVersion) ? "Unknown" : os.DisplayVersion;
 
-        var top = Ui.Columns(3, 16,
+        var top = Ui.Columns(4, 16,
             Ui.Stat(osLabel, marketing),
             Ui.Stat("Version", BuildNumber(os.Version)),
             Ui.Stat("Feature", Format.OrUnknown(os.FeatureUpdate)),

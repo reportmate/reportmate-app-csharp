@@ -39,6 +39,11 @@ public partial class SettingsViewModel : ObservableObject
 
     public enum SaveState { Idle, Saving, Saved, Failed }
 
+    /// <summary>How the fleet pages are signing in. Nothing here is stored or editable.</summary>
+    public string SignInSummary => EntraSession.Shared.SignedInAudience is { } audience
+        ? $"Signed in with Entra through az for {audience}. Nothing is stored; the token stays in memory."
+        : "Signs in with Entra through az when this API offers it and az is signed in. Otherwise the read passphrase below is used.";
+
     public string VersionDisplay => $"Version {ReportMateConstants.Version}";
 
     public string ApiKeyPlaceholderText => HasExistingApiKey ? "Key saved. Enter a new one to replace it" : "API authentication key";
@@ -132,7 +137,7 @@ public partial class SettingsViewModel : ObservableObject
         nameof(SaveStatus), nameof(SaveStatusGlyph), nameof(SaveStatusMessage), nameof(IsSaveStatusVisible),
         nameof(HasExistingApiKey), nameof(HasExistingPassphrase), nameof(ApiKeyPlaceholderText),
         nameof(PassphrasePlaceholderText), nameof(CollectionIntervalValue), nameof(MaxDataAgeValue),
-        nameof(ApiTimeoutValue), nameof(MaxRetryValue), nameof(VersionDisplay), "",
+        nameof(ApiTimeoutValue), nameof(MaxRetryValue), nameof(VersionDisplay), nameof(SignInSummary), "",
     ];
 
     protected override void OnPropertyChanged(System.ComponentModel.PropertyChangedEventArgs e)
