@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using ReportMate.App.Services;
 
 namespace ReportMate.App.Views.Fleet;
 
@@ -80,7 +81,7 @@ public static partial class Insights
                 var serial = Str(agent, "serialNumber");
                 if (serial.Length > 0) serials.Add(serial);
             }
-        var threshold = (int)(Number(filters, "staleAgentThresholdDays") ?? 7);
+        var threshold = Format.ToInt(Number(filters, "staleAgentThresholdDays")) ?? 7;
         return new StaleAgentSummary(serials.Count, threshold, serials);
     }
 
@@ -258,8 +259,8 @@ public static partial class Insights
 
     // ── Security extras ──────────────────────────────────────────────────
 
-    public static int ActiveThreats(JsonElement r) => (int)(Number(r, "activeThreatCount") ?? Number(r, "detectionCount") ?? 0);
-    public static int ExpiredCerts(JsonElement r) => (int)(Number(r, "userExpiredCertCount") ?? Number(r, "expiredCertCount") ?? 0);
+    public static int ActiveThreats(JsonElement r) => Format.ToInt(Number(r, "activeThreatCount") ?? Number(r, "detectionCount")) ?? 0;
+    public static int ExpiredCerts(JsonElement r) => Format.ToInt(Number(r, "userExpiredCertCount") ?? Number(r, "expiredCertCount")) ?? 0;
     public static int ExpiringCerts(JsonElement r) => Int(r, "expiringSoonCertCount");
     public static int CriticalCves(JsonElement r) => Int(r, "criticalCveCount");
     public static int ExploitedCves(JsonElement r) => Int(r, "activelyExploitedCveCount");
@@ -295,7 +296,7 @@ public static partial class Insights
             .Where(c => Str(c, "commonName").Length > 0)
             .GroupBy(c => Str(c, "commonName"), StringComparer.OrdinalIgnoreCase)
             .Select(g => (CommonName: Str(g.First(), "commonName"),
-                Days: (int)g.Min(c => Number(c, "daysUntilExpiry") ?? 0), Count: g.Count()))
+                Days: Format.ToInt(g.Min(c => Number(c, "daysUntilExpiry") ?? 0)) ?? 0, Count: g.Count()))
             .OrderBy(g => g.Days)
             .ThenByDescending(g => g.Count)
             .ThenBy(g => g.CommonName, StringComparer.OrdinalIgnoreCase)
@@ -474,7 +475,7 @@ public static partial class Insights
         var apps = Prop(usage, "applications") is { ValueKind: JsonValueKind.Array } list
             ? list.EnumerateArray()
                 .Select(a => new AppUse(Str(a, "name"), Number(a, "totalHours") ?? 0,
-                    (int)(Number(a, "activeDeviceCount") ?? Number(a, "deviceCount") ?? 0),
+                    Format.ToInt(Number(a, "activeDeviceCount") ?? Number(a, "deviceCount")) ?? 0,
                     Int(a, "installedDeviceCount")))
                 .Where(a => a.Name.Length > 0)
                 .ToList()

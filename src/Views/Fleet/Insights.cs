@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using ReportMate.App.Services;
 using System.Text.RegularExpressions;
 
 namespace ReportMate.App.Views.Fleet;
@@ -45,14 +46,20 @@ public static partial class Insights
         Prop(parent, name) is { ValueKind: JsonValueKind.String } v ? (v.GetString() ?? "").Trim() : "";
 
     /// <summary>A number, read from a JSON number or a numeric string.</summary>
+    /// <summary>
+    /// A number, read from a JSON number or a numeric string; null when it is NaN or
+    /// infinite, which a string such as "NaN" or "1e400" parses to.
+    /// </summary>
     internal static double? Number(JsonElement parent, string name) => Prop(parent, name) switch
     {
-        { ValueKind: JsonValueKind.Number } v => v.GetDouble(),
-        { ValueKind: JsonValueKind.String } v when double.TryParse(v.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) => d,
+        { ValueKind: JsonValueKind.Number } v when v.TryGetDouble(out var n) && double.IsFinite(n) => n,
+        { ValueKind: JsonValueKind.String } v when double.TryParse(v.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var d)
+            && double.IsFinite(d) => d,
         _ => null,
     };
 
-    internal static int Int(JsonElement parent, string name) => (int)(Number(parent, name) ?? 0);
+    /// <summary>A whole number; 0 when absent or out of an int's range, never a throw.</summary>
+    internal static int Int(JsonElement parent, string name) => Format.ToInt(Number(parent, name)) ?? 0;
 
     /// <summary>
     /// True, 1, "true", "1" and "yes" read as on; anything else as off. The clients

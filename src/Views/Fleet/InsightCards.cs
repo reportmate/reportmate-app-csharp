@@ -440,7 +440,7 @@ public static class InsightCards
             .ToList();
 
         // The current card sends the device count as total; the earlier one as devices.
-        var devices = Insights.Number(v, "total") is { } total ? (int)total : Insights.Int(v, "devices");
+        var devices = Format.ToInt(Insights.Number(v, "total")) ?? Insights.Int(v, "devices");
         var parts = new List<CardPart>
         {
             new DonutPart(devices.ToString("N0", CultureInfo.CurrentCulture), "devices", segments),
@@ -477,6 +477,8 @@ public static class InsightCards
     /// </summary>
     public static string CompactHours(double hours)
     {
+        // NaN, infinity or a figure no hour count reaches is not shown as a number.
+        if (!double.IsFinite(hours) || hours > 1e15) return Format.Dash;
         var n = Math.Max(0, hours);
         static string Trim(double v) => v.ToString("0.0", CultureInfo.InvariantCulture).Replace(".0", "");
         if (n < 1000) return $"{Math.Round(n, MidpointRounding.AwayFromZero):0} h";
