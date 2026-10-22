@@ -125,6 +125,19 @@ public class RemoteDeviceTests
     }
 
     [Fact]
+    public void AMacsLogRootsAreReadEvenWhenItsManagementModuleIsNot()
+    {
+        var management = JsonDocument.Parse("""
+            {"mdm_enrollment":{"enrolled":"true"},"installed_profiles":"not a list",
+             "logs":{"platform":"macOS","roots":[{"tool":"installs","name":"Managed Installs","errorCount":3,"tails":[]}]}}
+            """).RootElement;
+        var logs = RemoteDevice.LogsFrom(management);
+        Assert.Equal("installs", logs!.Roots.Single().Tool);
+        Assert.Equal(3, logs.Roots[0].ErrorCount);
+        Assert.Null(RemoteDevice.LogsFrom(JsonDocument.Parse("""{"logs":{"roots":[]}}""").RootElement));
+    }
+
+    [Fact]
     public void ThisMachinesReportIsNotRemote()
     {
         var local = new DeviceSnapshot();

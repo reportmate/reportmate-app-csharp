@@ -102,8 +102,6 @@ public static class MacApplicationsView
         var built = table.WithDetails(Details).Build();
         built.Margin = new Thickness(0, 24, 0, 0);
         page.Children.Add(built);
-
-        page.Children.Add(RawCard(raw, s));
         return page;
     }
 

@@ -58,13 +58,31 @@ public sealed class ManagementTab : DeviceTab
     /// A Mac's management report: the log viewer, whose roots are the same shape on
     /// both platforms, then the rest of the module as the Mac sent it.
     /// </summary>
+    private DeviceSnapshot? _macLogsFor;
+    private ManagementLogs? _macLogs;
+
+    /// <summary>
+    /// A Mac's log roots: from the Windows class when it read, else straight from the
+    /// module. Kept per report, because the viewer puts fetched tails into it.
+    /// </summary>
+    private ManagementLogs? MacLogs(DeviceSnapshot s)
+    {
+        if (!ReferenceEquals(_macLogsFor, s))
+        {
+            _macLogsFor = s;
+            _macLogs = s.Management?.Logs is { Roots.Count: > 0 } read ? read
+                : s.RawModules.TryGetValue("management", out var raw) ? RemoteDevice.LogsFrom(raw) : null;
+        }
+        return _macLogs;
+    }
+
     protected override UIElement BuildMac(DeviceSnapshot s)
     {
         if (!ReferenceEquals(_snapshot, s)) { _fetchedTools.Clear(); _fetchingTools.Clear(); }
         _snapshot = s;
         var page = new StackPanel();
         page.Children.Add(Ui.TabHeader("Device Management Service", "Enrollment, Policies, and Identity Status", Glyph, Accent));
-        if (s.Management?.Logs is { Roots.Count: > 0 } logs)
+        if (MacLogs(s) is { Roots.Count: > 0 } logs)
         {
             var host = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 0, 0, 16) };
             void Render() => host.Content = LogsCard(logs, Render);

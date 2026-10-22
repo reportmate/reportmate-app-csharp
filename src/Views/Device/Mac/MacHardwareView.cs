@@ -81,7 +81,7 @@ public static class MacHardwareView
     private static string Percent(double value) => $"{(int)Math.Round(value, MidpointRounding.AwayFromZero)}%";
 
     private static Border BatteryCard(MacBattery b) =>
-        Ui.SpecCard(Glyph, "Battery", $"{b.CycleCount} Cycles", $"{Percent(b.ChargePercent)} • {Format.OrUnknown(b.Health)}");
+        Ui.SpecCard(Glyph, "Battery", $"{b.CycleCount} Cycles", BatteryDetail(b));
 
     private static Border? NpuCard(MacHardwareInfo hw, bool withName) => hw.HasNpu
         ? Ui.SpecCard(Glyph, "NPU", hw.NpuTops is { } tops ? $"{tops} TOPS" : $"{hw.NpuCores} Cores",
@@ -107,6 +107,15 @@ public static class MacHardwareView
     /// four sit inside a dashed outline under the chip's name, and storage, battery and
     /// radios sit outside it.
     /// </summary>
+    /// <summary>
+    /// "100% • Normal": the charge, then the health or, when the Mac reports none,
+    /// its condition. A part the Mac did not report is left out rather than shown
+    /// as Unknown.
+    /// </summary>
+    private static string BatteryDetail(MacBattery b) =>
+        string.Join(" • ", new[] { Percent(b.ChargePercent), b.Health ?? b.Condition }
+            .Where(p => !string.IsNullOrWhiteSpace(p) && !p.Equals("unknown", StringComparison.OrdinalIgnoreCase)));
+
     private static UIElement UnifiedGrid(MacHardwareInfo hw)
     {
         var title = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 8, 0, 10) };

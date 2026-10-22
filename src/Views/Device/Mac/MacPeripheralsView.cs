@@ -114,9 +114,6 @@ public static class MacPeripheralsView
         Render();
         page.Children.Add(host);
 
-        var json = Ui.Collapsible("device.modules.peripherals", JsonTree.Build(raw));
-        json.Margin = new Thickness(0, 24, 0, 0);
-        page.Children.Add(json);
         return page;
     }
 

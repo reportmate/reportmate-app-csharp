@@ -161,6 +161,22 @@ public static class RemoteDevice
         return events.OrderByDescending(e => e.Timestamp).ToList();
     }
 
+    /// <summary>
+    /// The management tools' log roots from a management module, read on their own.
+    /// A Mac's management module does not fit the Windows class, so the whole module
+    /// can fail to read while its log roots -- the same shape on both platforms -- are fine.
+    /// </summary>
+    public static ManagementLogs? LogsFrom(JsonElement management)
+    {
+        if (Prop(management, "logs") is not { ValueKind: JsonValueKind.Object } logs) return null;
+        try
+        {
+            var read = logs.Deserialize<ManagementLogs>(JsonOptions);
+            return read is { Roots.Count: > 0 } ? read : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
     /// <summary>One tool's log root with its tails, from <c>/logs/{tool}</c>; null when the device has none.</summary>
     public static LogRoot? LogRootFrom(JsonElement response)
     {

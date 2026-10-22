@@ -56,19 +56,18 @@ public sealed class EventsTab : DeviceTab
         }
 
         var bundles = BundleEvents(events);
-        var counts = events.GroupBy(Kind).ToDictionary(g => g.Key, g => g.Count());
+        // Everything on this tab counts the rows the list shows: routine events folded
+        // into one row are one entry, so the header, the chips and the list agree.
+        bool Matches(Bundle b, string kind) => b.Kind == kind || b.Kinds.Contains(kind);
+        var counts = Filters.ToDictionary(f => f.Key, f => bundles.Count(b => Matches(b, f.Key)));
 
         var list = new StackPanel();
         var subtitle = Ui.Text("", "SubtitleTextStyle");
         var filterBar = new StackPanel { Orientation = Orientation.Horizontal };
         void Render()
         {
-            var shown = _filter == "all" ? bundles : bundles.Where(b => b.Kind == _filter || b.Kinds.Contains(_filter)).ToList();
-            // Counted in events, as the filter chips count them; routine events
-            // folded into one row are still that many events.
-            subtitle.Text = _filter == "all"
-                ? $"{events.Count} total events" + (bundles.Count != events.Count ? $", in {bundles.Count} rows" : "")
-                : $"{counts.GetValueOrDefault(_filter)} {_filter} events";
+            var shown = _filter == "all" ? bundles : bundles.Where(b => Matches(b, _filter)).ToList();
+            subtitle.Text = _filter == "all" ? $"{shown.Count} total events" : $"{shown.Count} {_filter} events";
             list.Children.Clear();
             foreach (var b in shown) list.Children.Add(Row(b));
             if (shown.Count == 0) list.Children.Add(Ui.Card(Ui.EmptyState($"No {_filter} events found.")));

@@ -88,7 +88,6 @@ public static class MacIdentityView
         Render();
         Add(host);
 
-        Add(Ui.Collapsible("device.modules.identity", JsonTree.Build(raw)), 20);
         return page;
     }
 
