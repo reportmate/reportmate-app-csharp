@@ -242,7 +242,7 @@ public sealed class AppUsagePage : FleetPage
         summary.ValueKind == JsonValueKind.Object && summary.TryGetProperty("totalUsageHours", out var v)
             ? Json.Text(v) : "0";
 
-    private static UIElement Stat(string label, string value)
+    internal static UIElement Stat(string label, string value)
     {
         var body = new StackPanel();
         var n = Ui.Text(value);
