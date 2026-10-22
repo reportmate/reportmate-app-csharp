@@ -71,7 +71,9 @@ public sealed class ManagementTab : DeviceTab
             Render();
             page.Children.Add(host);
         }
-        AddMacModules(page, s);
+        // The rest of the module in the Mac layout when it is ported, else as sent.
+        if (Mac.MacManagementView.Build(s) is { } native) page.Children.Add(native);
+        else AddMacModules(page, s);
         return page;
     }
 

@@ -46,6 +46,15 @@ public abstract class DeviceTab : ContentControl
     /// </summary>
     protected virtual UIElement BuildMac(DeviceSnapshot s)
     {
+        // The tab's own Mac layout when it has one, as the web and Mac apps draw it.
+        try
+        {
+            if (Mac.MacViews.Build(Id, s) is { } native) return native;
+        }
+        catch (Exception ex)
+        {
+            return Ui.Card(Ui.EmptyState($"This Mac's {Id} data could not be drawn: {ex.Message}"));
+        }
         var page = new StackPanel();
         page.Children.Add(Ui.TabHeader(Label, Description, Glyph, Accent));
         AddMacModules(page, s);
