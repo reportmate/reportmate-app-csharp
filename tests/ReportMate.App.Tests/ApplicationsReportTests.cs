@@ -366,4 +366,64 @@ public class ApplicationsReportTests
         clock.Stop();
         Assert.True(clock.ElapsedMilliseconds < 1000, $"took {clock.ElapsedMilliseconds} ms");
     }
+
+    // ── Usage widgets ──────────────────────────────────────────────────
+
+    private const string Widgets = """
+        {"status":"ok",
+         "applications":[
+           {"name":"Sample App","launchCount":30,"devices":["dev-a","dev-b"]},
+           {"name":"Other App","launchCount":5,"devices":["dev-c"]}
+         ],
+         "devicesAggregate":[
+           {"serialNumber":"dev-a","totalHours":120,"launchCount":1200,"usage":"Shared","catalog":"Staff","department":"Design","fleet":"Lab","location":"North"},
+           {"serialNumber":"dev-b","totalHours":5,"launchCount":20,"usage":"Shared","catalog":"Faculty","department":"Design","fleet":"Lab","location":"Unknown"},
+           {"serialNumber":"dev-c","totalHours":60,"launchCount":40,"usage":"Assigned","catalog":"Staff","department":"Film","fleet":"","location":"South"}
+         ]}
+        """;
+
+    [Fact]
+    public void WidgetsRollUpLaunchesByEachDimension()
+    {
+        var r = ApplicationsReport.ReadUsage(Json(Widgets));
+        var a = ApplicationsReport.Aggregate(r.Devices, r.Apps, new HashSet<string>(), ApplicationsReport.UsageMetric.Launches);
+        Assert.Equal(1260, a.GrandTotal);
+        Assert.Equal(3, a.DeviceCount);
+        Assert.Equal([("Shared", 1220d), ("Assigned", 40d)], a.ByUsage);
+        Assert.Equal([("Staff", 1240d), ("Faculty", 20d)], a.ByCatalog);
+        Assert.Equal([("Lab", 1220d)], a.ByFleet);
+        Assert.Equal([("Design", 1220d), ("Film", 40d)], a.ByArea);
+        Assert.Equal([("North", 1200d), ("South", 40d)], a.ByLocation);
+        Assert.Equal([0, 2, 0, 0, 1], a.Bins.Select(b => b.Count));
+        Assert.Equal("1000+", a.Bins[4].Label);
+    }
+
+    [Fact]
+    public void HoursUseTheirOwnBins()
+    {
+        var r = ApplicationsReport.ReadUsage(Json(Widgets));
+        var a = ApplicationsReport.Aggregate(r.Devices, r.Apps, new HashSet<string>(), ApplicationsReport.UsageMetric.Hours);
+        Assert.Equal(["0–10h", "10–50h", "50–100h", "100–250h", "250h+"], a.Bins.Select(b => b.Label));
+        Assert.Equal([1, 0, 1, 1, 0], a.Bins.Select(b => b.Count));
+        Assert.Equal("185h", ApplicationsReport.FormatMetric(a.GrandTotal, ApplicationsReport.UsageMetric.Hours));
+    }
+
+    [Fact]
+    public void SwitchingAnAppOffNarrowsTheTableAndTheDeviceSet()
+    {
+        var r = ApplicationsReport.ReadUsage(Json(Widgets));
+        var off = new HashSet<string> { "Other App" };
+        Assert.Equal(["Sample App"], ApplicationsReport.SwitchedOn(r.Apps, off).Select(a => a.Name));
+        var a = ApplicationsReport.Aggregate(r.Devices, r.Apps, off, ApplicationsReport.UsageMetric.Launches);
+        Assert.Equal(2, a.DeviceCount);
+        Assert.Equal([("Shared", 1220d)], a.ByUsage);
+    }
+
+    [Fact]
+    public void NothingToCountStillDividesSafely()
+    {
+        var a = ApplicationsReport.Aggregate([], [], new HashSet<string>(), ApplicationsReport.UsageMetric.Launches);
+        Assert.Equal(1, a.GrandTotal);
+        Assert.False(a.HasBins);
+    }
 }

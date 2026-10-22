@@ -432,6 +432,75 @@ public static class ApplicationsReport
                 ? ReadDistribution(vd) : new Dictionary<string, VersionBucket>());
     }
 
+    // ── Usage widgets ───────────────────────────────────────────────────
+
+    /// <summary>What the usage widgets add up: launches, the web's default, or hours.</summary>
+    public enum UsageMetric { Launches, Hours }
+
+    public sealed record Bin(string Label, double Min, double Max, int Count);
+
+    /// <summary>
+    /// The usage widgets, rolled up from the report's per-device totals in the web's
+    /// order: by usage type, by catalog, the device distribution, then by fleet, by
+    /// area and by location, the last two cut to their top ten.
+    /// </summary>
+    public sealed record UsageAggregates(double GrandTotal, int DeviceCount,
+        IReadOnlyList<(string Label, double Value)> ByUsage, IReadOnlyList<(string Label, double Value)> ByCatalog,
+        IReadOnlyList<Bin> Bins, IReadOnlyList<(string Label, double Value)> ByFleet,
+        IReadOnlyList<(string Label, double Value)> ByArea, IReadOnlyList<(string Label, double Value)> ByLocation)
+    {
+        public bool HasBins => Bins.Any(b => b.Count > 0);
+    }
+
+    /// <summary>
+    /// Roll the devices up by inventory dimension. With apps switched off, only the
+    /// devices that used one still switched on are counted. As on the web this is an
+    /// approximation: a device's totals still include its other apps' time, but the
+    /// device set is what moves when a reader focuses on a few apps.
+    /// </summary>
+    public static UsageAggregates Aggregate(IReadOnlyList<UsageDevice> devices, IReadOnlyList<UsageApp> apps,
+        IReadOnlySet<string> switchedOff, UsageMetric metric)
+    {
+        IEnumerable<UsageDevice> scope = devices;
+        if (switchedOff.Count > 0)
+        {
+            var used = new HashSet<string>(apps.Where(a => !switchedOff.Contains(a.Name)).SelectMany(a => a.Devices),
+                StringComparer.OrdinalIgnoreCase);
+            scope = devices.Where(d => used.Contains(d.Serial));
+        }
+        var list = scope.ToList();
+        double Value(UsageDevice d) => metric == UsageMetric.Hours ? d.TotalHours : d.LaunchCount;
+        var total = list.Sum(Value);
+
+        static bool Unknown(string k) => k.Trim().ToLowerInvariant() is "" or "unknown" or "null" or "n/a";
+        IReadOnlyList<(string, double)> Sum(Func<UsageDevice, string> key) => list
+            .Where(d => !Unknown(key(d)))
+            .GroupBy(key)
+            .Select(g => (g.Key, g.Sum(Value)))
+            .Where(p => p.Item2 > 0)
+            .OrderByDescending(p => p.Item2).ThenBy(p => p.Key, StringComparer.Ordinal)
+            .ToList();
+
+        (string, double, double)[] defs = metric == UsageMetric.Hours
+            ? [("0–10h", 0, 10), ("10–50h", 10, 50), ("50–100h", 50, 100), ("100–250h", 100, 250), ("250h+", 250, double.PositiveInfinity)]
+            : [("0–10", 0, 10), ("10–50", 10, 50), ("50–250", 50, 250), ("250–1000", 250, 1000), ("1000+", 1000, double.PositiveInfinity)];
+        var bins = defs.Select(b => new Bin(b.Item1, b.Item2, b.Item3,
+            list.Count(d => Value(d) >= b.Item2 && Value(d) < b.Item3))).ToList();
+
+        return new UsageAggregates(total == 0 ? 1 : total, list.Count,
+            Sum(d => d.Usage), Sum(d => d.Catalog), bins, Sum(d => d.Fleet),
+            Sum(d => d.Area).Take(10).ToList(), Sum(d => d.Location).Take(10).ToList());
+    }
+
+    /// <summary>A widget value as the web prints it: <c>12h</c>, or a plain count.</summary>
+    public static string FormatMetric(double value, UsageMetric metric) => metric == UsageMetric.Hours
+        ? $"{Math.Round(value).ToString("0", CultureInfo.InvariantCulture)}h"
+        : Math.Round(value).ToString("N0", CultureInfo.InvariantCulture);
+
+    /// <summary>The report's apps with the switched-off ones taken out, for the table and widgets.</summary>
+    public static IReadOnlyList<UsageApp> SwitchedOn(IEnumerable<UsageApp> apps, IReadOnlySet<string> switchedOff) =>
+        apps.Where(a => !switchedOff.Contains(a.Name)).ToList();
+
     /// <summary>The apps in the order the web defaults to: active time first, ties broken by process time.</summary>
     public static IReadOnlyList<UsageApp> ByActiveTime(IEnumerable<UsageApp> apps) =>
         apps.OrderByDescending(a => a.ActiveHours ?? 0).ThenByDescending(a => a.TotalHours)
