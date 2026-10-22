@@ -20,6 +20,16 @@ public abstract class FleetPage : Page
     };
 
     private readonly LoadingStrip _strip = new();
+    private readonly Border _banner = new()
+    {
+        Visibility = Visibility.Collapsed,
+        HorizontalAlignment = HorizontalAlignment.Right,
+        VerticalAlignment = VerticalAlignment.Top,
+        Margin = new Thickness(0, 10, 28, 0),
+        Padding = new Thickness(12, 6, 8, 6),
+        CornerRadius = new CornerRadius(8),
+        BorderThickness = new Thickness(1),
+    };
     private DispatcherTimerHolder? _timer;
     private bool _loading;
     private bool _skeleton;
@@ -35,6 +45,7 @@ public abstract class FleetPage : Page
     {
         var root = new Grid();
         root.Children.Add(_scroll);
+        root.Children.Add(_banner);
         root.Children.Add(_strip);
         Content = root;
         Loaded += async (_, _) =>
@@ -101,13 +112,23 @@ public abstract class FleetPage : Page
             }
             _strip.Start(labelled: _skeleton);
             var body = await BuildAsync();
+
+            // A refresh that failed over data already on screen keeps that data and
+            // says so in a banner; the full error page is for a page with nothing.
+            if (HasData && Unavailable(body) is { } failure)
+            {
+                ShowBanner(failure.Detail ?? failure.Title);
+                return;
+            }
             _scroll.Content = body;
             _skeleton = false;
             _loadedAt = DateTime.UtcNow;
+            _banner.Visibility = Visibility.Collapsed;
         }
         catch (Exception ex)
         {
-            _scroll.Content = Ui.Card(Ui.EmptyState($"This page could not be built: {ex.Message}"));
+            if (HasData) ShowBanner(ex.Message);
+            else _scroll.Content = Ui.Card(Ui.EmptyState($"This page could not be built: {ex.Message}"));
             _skeleton = false;
         }
         finally
@@ -115,6 +136,45 @@ public abstract class FleetPage : Page
             _loading = false;
             _strip.Stop();
         }
+    }
+
+    /// <summary>Real data is on screen: not a skeleton, and not an error page.</summary>
+    private bool HasData => !_skeleton && _loadedAt is not null && _scroll.Content is UIElement current && Unavailable(current) is null;
+
+    /// <summary>"Couldn't refresh · Retry", with when the data on screen is from.</summary>
+    private void ShowBanner(string why)
+    {
+        _banner.Background = Ui.Brush("CardBackgroundBrush");
+        _banner.BorderBrush = Ui.Brush("CardBorderBrush");
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        row.Children.Add(Ui.Icon("\uE7BA", 13, Ui.StatusBrush(Tone.Warning)));
+        var when = _loadedAt is { } at ? $" · last updated {at.ToLocalTime():HH:mm}" : "";
+        var text = Ui.Caption($"Couldn't refresh{when}");
+        text.Margin = new Thickness(8, 0, 10, 0);
+        text.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(text);
+        var retry = Ui.IconButton("\uE72C", "Retry", async (_, _) => await ReloadAsync());
+        row.Children.Add(retry);
+        _banner.Child = row;
+        _banner.ToolTip = why;
+        _banner.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>What <see cref="FleetUnavailable"/> marks its card with, so a refresh can tell it apart from data.</summary>
+    private sealed record UnavailableMarker(string Title, string? Detail);
+
+    /// <summary>The unavailable card in a page body, looked for a few levels down.</summary>
+    private static UnavailableMarker? Unavailable(UIElement? element, int depth = 0)
+    {
+        if (element is null || depth > 4) return null;
+        if (element is FrameworkElement { Tag: UnavailableMarker marker }) return marker;
+        return element switch
+        {
+            Panel panel => panel.Children.OfType<UIElement>().Select(c => Unavailable(c, depth + 1)).FirstOrDefault(m => m is not null),
+            Decorator decorator => Unavailable(decorator.Child, depth + 1),
+            ContentControl content => Unavailable(content.Content as UIElement, depth + 1),
+            _ => null,
+        };
     }
 
     /// <summary>
@@ -179,7 +239,9 @@ public abstract class FleetPage : Page
             d.Margin = new Thickness(0, 14, 0, 0);
             panel.Children.Add(d);
         }
-        return Ui.Card(panel);
+        var card = Ui.Card(panel);
+        card.Tag = new UnavailableMarker(title, detail);
+        return card;
     }
 }
 
