@@ -380,13 +380,16 @@ public sealed class DashboardPage : FleetPage
 /// The layout is the shared dashboard spec's, so the web, the Mac and this app put
 /// the same card in the same place at the same width:
 /// <list type="bullet">
-/// <item>Wide (27-inch class): four columns 1/1/1/2 -- status, two insight columns
-/// with the cards dealt alternately so both grow evenly, then activity.</item>
-/// <item>Desktop: three columns 1/1/2 with cards 1-4 in the insight column, and
-/// cards 5-12 four across underneath.</item>
-/// <item>Medium: status and activity 30/70, every card two across below.</item>
-/// <item>Narrow: one column, every card two across at the bottom.</item>
+/// <item>Wide (27-inch class): four stacks 1/1/1/2 -- status, the two insight
+/// columns in Rod's order, then activity.</item>
+/// <item>Desktop: three stacks 1/1/2, with the second insight column's cards dealt
+/// into them, each to the stack holding the fewest.</item>
+/// <item>Medium: two stacks 30/70, status and activity, with every insight card dealt
+/// into them the same way.</item>
+/// <item>Narrow: one stack.</item>
 /// </list>
+/// Every tier is independent column stacks, never a grid row below the columns: a
+/// row underneath leaves gaps beside whichever column runs tallest.
 /// Decided on the layout's own width rather than the window's, so a host that embeds
 /// the dashboard in part of a window gets the layout that fits it. Cards keep their
 /// own height; nothing is stretched to match a neighbour.
@@ -405,9 +408,6 @@ public sealed class DashboardLayout : Grid
 
     /// <summary>Below this, status and activity are too cramped side by side.</summary>
     public const double NarrowWidth = 860;
-
-    /// <summary>Insight cards 1-4 stay beside status in the desktop layout; the rest go below.</summary>
-    public const int DesktopColumnCards = 4;
 
     private const double Gap = 18;
 
@@ -452,8 +452,8 @@ public sealed class DashboardLayout : Grid
 
         // Take every element out of whatever held it before re-placing it.
         Children.Clear();
-        foreach (var card in _cards)
-            if (card.Parent is Panel holder) holder.Children.Remove(card);
+        foreach (var element in _cards.Append(_status).Append(_activity))
+            if (element.Parent is Panel holder) holder.Children.Remove(element);
         ColumnDefinitions.Clear();
         RowDefinitions.Clear();
         foreach (var child in new[] { _status, _activity })
@@ -482,43 +482,49 @@ public sealed class DashboardLayout : Grid
 
             case Mode.Desktop:
             {
+                // Three stacks. The second insight column's cards are dealt into the
+                // stacks, each to the one holding the fewest, never laid out as a row
+                // underneath: a row leaves gaps beside a tall first column.
                 AddColumns(1, 1, 2);
-                AddRows(2);
-                Place(_status, 0, 0);
-                Place(Column(_columnA), 0, 2);
-                Place(_activity, 0, 4);
-                var below = Grid(_columnB, 4);
-                below.Margin = new Thickness(0, Gap, 0, 0);
-                Place(below, 1, 0, span: 5);
+                var stacks = Deal(_columnB, [_status], [.. _columnA], [_activity]);
+                Place(Column(stacks[0]), 0, 0);
+                Place(Column(stacks[1]), 0, 2);
+                Place(Column(stacks[2]), 0, 4);
                 break;
             }
 
             case Mode.Medium:
             {
+                // Two stacks, status and activity, with every insight card dealt into them.
                 AddColumns(3, 7);
-                AddRows(2);
-                Place(_status, 0, 0);
-                Place(_activity, 0, 2);
-                var below = Grid(_cards, 2);
-                below.Margin = new Thickness(0, Gap, 0, 0);
-                Place(below, 1, 0, span: 3);
+                var stacks = Deal(_cards, [_status], [_activity]);
+                Place(Column(stacks[0]), 0, 0);
+                Place(Column(stacks[1]), 0, 2);
                 break;
             }
 
             default:
             {
-                AddRows(3);
-                Place(_status, 0, 0);
-                Place(_activity, 1, 0);
-                _activity.Margin = new Thickness(0, Gap, 0, 0);
-                var below = Grid(_cards, 2);
-                below.Margin = new Thickness(0, Gap, 0, 0);
-                Place(below, 2, 0);
+                // One stack: status, activity, then every insight card in order.
+                Place(Column([_status, _activity, .. _cards]), 0, 0);
                 break;
             }
         }
     }
 
+    /// <summary>
+    /// Deal cards, in order, into stacks, each to the stack holding the fewest
+    /// widgets so far (the leftmost on a tie). A status or activity panel counts its
+    /// own widgets, so a column already holding four does not take the next card.
+    /// </summary>
+    private static List<FrameworkElement>[] Deal(IEnumerable<FrameworkElement> cards, params List<FrameworkElement>[] stacks)
+    {
+        static int Weight(FrameworkElement e) => e is Panel { Children.Count: > 0 } p ? p.Children.Count : 1;
+        var list = cards.ToList();
+        var targets = ColumnDeal.Assign(list.Count, stacks.Select(st => st.Sum(Weight)).ToArray());
+        for (var i = 0; i < list.Count; i++) stacks[targets[i]].Add(list[i]);
+        return stacks;
+    }
 
     private void Place(FrameworkElement child, int row, int column, int span = 1)
     {
@@ -540,25 +546,6 @@ public sealed class DashboardLayout : Grid
         return column;
     }
 
-    /// <summary>Cards in a grid of up to <paramref name="columns"/> across, rows not stretched.</summary>
-    private static Shared.UniformCardPanel Grid(IEnumerable<FrameworkElement> cards, int columns)
-    {
-        // The layout's own gap, and a quarter width per card however many there
-        // are, so the cards under the columns line up with the columns. Three cards
-        // under a three-column layout stretched to a third of the page each.
-        var grid = Ui.CardGrid(300, Gap);
-        grid.MaxColumns = columns;
-        grid.StretchRows = false;
-        grid.Balanced = false;
-        grid.KeepColumnWidth = true;
-        foreach (var card in cards)
-        {
-            card.Margin = new Thickness(0);
-            grid.Children.Add(card);
-        }
-        return grid;
-    }
-
     private void AddColumns(params double[] weights)
     {
         for (var i = 0; i < weights.Length; i++)
@@ -566,10 +553,5 @@ public sealed class DashboardLayout : Grid
             if (i > 0) ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Gap) });
             ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(weights[i], GridUnitType.Star) });
         }
-    }
-
-    private void AddRows(int count)
-    {
-        for (var i = 0; i < count; i++) RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
     }
 }

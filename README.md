@@ -150,9 +150,11 @@ Column 1 holds Fleet Status, then Installs (with the dashboard's largest numbers
 Management Tools Logs and Check-in Gaps. The first insight column holds New Clients,
 Directory Services, Connectivity Problems, Protection Gaps and Expiring Certificates;
 the second, Update Debt, Storage, App Usage, Software Risk and Reboot Debt. The wide
-column holds Recent Events, Platform Distribution and the OS versions. On a desktop
-the second insight column runs four across underneath; narrower, both flow into one
-grid in the same order. Coming back to any fleet page shows what it last
+column holds Recent Events, Platform Distribution and the OS versions. Every width is
+independent column stacks, never a row below them: on a desktop the second insight
+column's cards are dealt into the three stacks, each to the one holding the fewest;
+narrower, every insight card is dealt into the status and activity stacks, and at the
+narrowest everything is one stack. Coming back to any fleet page shows what it last
 had at once and refreshes it in the background, with a thin bar across the top while
 it works. Skeletons, with a sweeping shimmer and a "Loading 1 of 2" bar, appear only
 on a page's first load. The device page always keeps every report as its own tab.

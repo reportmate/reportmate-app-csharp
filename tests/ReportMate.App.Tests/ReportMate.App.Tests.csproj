@@ -29,6 +29,7 @@
     <Compile Include="..\..\src\Views\Fleet\ManagementLogsReport.cs" Link="ManagementLogsReport.cs" />
     <Compile Include="..\..\src\Views\Fleet\ApplicationsReport.cs" Link="ApplicationsReport.cs" />
     <Compile Include="..\..\src\Services\Csv.cs" Link="Csv.cs" />
+    <Compile Include="..\..\src\Views\Fleet\ColumnDeal.cs" Link="ColumnDeal.cs" />
     <Compile Include="..\..\src\Services\EntraSignIn.cs" Link="EntraSignIn.cs" />
     <Compile Include="..\..\src\Services\ReportQueue.cs" Link="ReportQueue.cs" />
     <Compile Include="..\..\src\Views\Fleet\Network.cs" Link="Network.cs" />
