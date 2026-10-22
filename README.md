@@ -130,15 +130,17 @@ The dashboard follows the layout and cards shared with the web and Mac apps:
 | 1,420 to 1,939 | three columns 1/1/2, cards 1 to 4 beside status, cards 5 to 12 four across below |
 | 1,940 and over | four columns 1/1/1/2, the cards dealt alternately into two insight columns |
 
-The twelve insight cards each answer one question: Reboot & Update Debt, Protection
-Gaps, Unmanaged Devices, Hardware at Risk, Install Health, Check-in Gaps, OS Currency,
-Software Risk, Expiring Certificates, Local Admin Exposure, Unused Software, and
-Connectivity Problems. They come from one cached call,
-`GET /api/v1/dashboard/insights?platform=all|macOS|Windows`, which the server
-computes with aggregate SQL and caches for five minutes. The app never downloads a
-bulk report for the dashboard. The call has a 45-second deadline and is repeated
-every five minutes. Cards show a skeleton until the first answer, and a card the
-server could not compute shows its error with a Retry.
+The insight cards each answer one question: Install Health, Reboot & Update Debt,
+Protection Gaps, Management Tools Errors, Storage, Check-in Gaps, OS Currency,
+Software Risk, Expiring Certificates, Directory Join (All, Windows and Mac views,
+following the platform toggle), Connectivity Problems, and App Usage (the ten
+most-used apps, with Usage and Catalog chips). Each comes from its own cached call,
+`GET /api/v1/dashboard/insights/{card}?platform=all|macOS|Windows`, and App Usage from
+`/api/v1/dashboard/insights/appUsage` with its filters, so the cards load in parallel
+and paint as they land. The server computes them with aggregate SQL; the app never
+downloads a bulk report for the dashboard. Each call has a 45-second deadline and is
+repeated every five minutes. A card shows a skeleton for ten seconds at most, then
+its error or "Still loading", with a Retry.
 
 Install Health sits under Fleet Status in the first column, with the dashboard's
 largest numbers, in place of the old Errors and Warnings tiles. App Usage sits in
@@ -158,14 +160,14 @@ These are the link parameters the reports read. Multiple values are comma-separa
 
 | Report | Parameters |
 |---|---|
-| `devices` | `status`, `search`, `platform` |
+| `devices` | `status`, `search`, `platform`, `tool` and `level` (shown, not yet applied: the list carries no log data) |
 | `system` | `osVersion`, `uptime` (`lt1d`, `1-3d`, `3-7d`, `1-2w`, `2-4w`, `30d+`), `pending` (`up-to-date`, `1-5`, `6-10`, `10+`), `deferred=1`, `edition`, `os` (`unsupported`, `windows10`), `patch` (`behind`, `latest`) |
 | `security` | `encryption=off`, `firewall=off`, `antivirus=off`, `sip=off`, `secureBoot=off`, `threats=1`, `certs=expired\|expiring`, `cve=critical\|exploited`, `certSearch=<text>`, `certStatus=expiring\|expired` |
 | `management` | `provider`, `enrolled=0\|1`, `enrollmentType`, `platform=macOS\|Windows` (this report only), `lastSeen=24h\|1-7d\|7d+` |
-| `hardware` | `arch` (`Apple Silicon`, `Intel`, `ARM64`, `x64`), `storage=low`, `memory=le8`, `type=laptop\|desktop`, `processor` |
-| `installs` | `filter=errors\|warnings`, `item=<name>`, `stale=1` |
+| `hardware` | `arch` (`Apple Silicon`, `Intel`, `ARM64`, `x64`), `storage=low\|lt5\|5-10\|10-20\|20+`, `capacity=le256\|512\|1t\|2t+`, `platform`, `memory=le8`, `type=laptop\|desktop`, `processor` |
+| `installs` | `filter=errors\|warnings\|pending`, `item=<name>`, `stale=1`, `agent=munki\|cimian` |
 | `events/failures` | `hours`, `reason`, `outcome` |
-| `identity` | `admins=extra\|2\|3\|4+`, `join=entra\|domain\|hybrid\|workgroup`, `usage=shared\|assigned` |
+| `identity` | `admins=extra\|2\|3\|4+`, `join=entra\|domain\|hybrid\|workgroup`, `usage=shared\|assigned`, `directory=psso\|bound\|unbound`, `platform` |
 | `applications` | `apps`, `publishers`, `versions`; `applications/usage/<app>?days=30` for one app |
 | `network` | `connection=wired\|wifi`, `signal=weak` (under 25%), `quality=poor`, `vpn=1` |
 | `peripherals` | `kind=printers\|displays`, `room=<room>` |

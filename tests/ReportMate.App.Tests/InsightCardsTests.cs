@@ -52,25 +52,13 @@ public class InsightCardsTests
     {
         Assert.Equal("reportmate://system?uptime=30d%2B", Find(View("rebootDebt"), "up 30+ days").Link!.ToAppUrl());
         Assert.Equal("reportmate://system?pending=1-5%2C6-10%2C10%2B", Find(View("rebootDebt"), "with pending updates").Link!.ToAppUrl());
-        Assert.Equal("reportmate://management?enrolled=0", Find(View("unmanagedDevices"), "not enrolled in MDM").Link!.ToAppUrl());
         Assert.Equal("reportmate://installs?filter=errors&item=Google%20Chrome", Find(View("installHealth"), "Google Chrome").Link!.ToAppUrl());
         Assert.Equal("reportmate://events/failures?hours=24&reason=invalid_passphrase",
             Find(View("checkinGaps"), "Wrong passphrase").Link!.ToAppUrl());
-        var app = Find(View("unusedSoftware"), "Adobe Photoshop 2026").Link!;
-        Assert.Equal(("applications", "usage/Adobe Photoshop 2026", "30"), (app.Section, app.Argument, app["days"]));
     }
 
     [Fact]
-    public void ADeviceLinkOpensTheDeviceListNarrowedToTheSerial()
-    {
-        var link = Find(View("unmanagedDevices"), "Sample Laptop").Link!;
-        Assert.Equal("reportmate://devices?search=SAMPLE1", link.ToAppUrl());
-        Assert.Equal("macOS", Find(View("unmanagedDevices"), "Sample Laptop").Platform);
-        Assert.Equal("reportmate://devices?search=SAMPLE2", Find(View("localAdminExposure"), "Sample Desktop").Link!.ToAppUrl());
-    }
-
-    [Fact]
-    public void ConnectivityLinksCarryTheNetworkFiltersTheServerLeavesOff()
+    public void ConnectivityLinksCarryTheNetworkFilters()
     {
         var view = View("connectivityProblems");
         Assert.Equal("reportmate://network?signal=weak", Find(view, "on a weak Wi-Fi signal").Link!.ToAppUrl());
@@ -105,21 +93,11 @@ public class InsightCardsTests
         Assert.Contains(View("checkinGaps", scoped: true).Parts.OfType<NotePart>(), n => n.Text.Contains("All platforms"));
     }
 
-    [Fact]
-    public void AppUsageListsOnlyTheMostUsedApps()
-    {
-        var bars = View("unusedSoftware").Parts.OfType<BarsPart>().ToList();
-        Assert.Single(bars);
-        Assert.Equal("MOST USED", bars[0].Heading);
-        Assert.Equal("Adobe Photoshop 2026", bars[0].Items[0].Label);
-        Assert.EndsWith(" h", bars[0].Items[0].Shown);
-        Assert.Equal("40 devices", bars[0].Items[0].Detail);
-    }
-
     [Theory]
     [InlineData("""{"devices":9,"lowStorage":{"count":1}}""")]
     [InlineData("""{"hardwareAtRisk":{"devices":9,"lowStorage":{"count":1}}}""")]
     [InlineData("""{"generatedAt":"2026-10-22T18:00:00Z","cards":{"hardwareAtRisk":{"devices":9,"lowStorage":{"count":1}}}}""")]
+    [InlineData("""{"card":"hardwareAtRisk","platform":"all","includeArchived":false,"generatedAt":"2026-10-22T18:00:00Z","data":{"devices":9,"lowStorage":{"count":1}}}""")]
     public void APerCardResponseIsReadInAnyOfItsShapes(string json)
     {
         var section = InsightCards.SectionOf(JsonDocument.Parse(json).RootElement, "hardwareAtRisk");
@@ -133,13 +111,73 @@ public class InsightCardsTests
         Assert.Equal("The API returned 502.", InsightCards.FailureText(502, "The API returned 502."));
     }
 
+    private static JsonElement AppUsage => InsightCards.SectionOf(JsonDocument.Parse(
+        File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "insights-appUsage.json"))).RootElement, "appUsage");
+
     [Fact]
-    public void HardwareAtRiskNamesIntelMacsAgainstAllMacs()
+    public void InstallHealthSplitsByAgentAndCountsItemsPendingAndSilent()
     {
-        var intel = Find(View("hardwareAtRisk"), "Intel Macs");
-        Assert.Equal(3, intel.Count);
-        Assert.StartsWith("of 5 Macs", intel.Detail);
-        Assert.Equal("reportmate://hardware?arch=Intel", intel.Link!.ToAppUrl());
+        var view = View("installHealth");
+        var figures = view.Parts.OfType<FiguresPart>().First().Items;
+        Assert.Equal(["devices with errors", "devices with warnings"], figures.Select(f => f.Label));
+        var agents = view.Parts.OfType<ListPart>().Single(l => l.Heading == "BY AGENT").Items;
+        Assert.Equal(["Munki", "Cimian"], agents.Select(a => a.Label));
+        Assert.Equal("macOS", agents[0].Platform);
+        Assert.Equal("reportmate://installs?agent=munki&filter=errors", agents[0].Link!.ToAppUrl());
+        Assert.Equal("reportmate://installs?filter=pending", Find(view, "pending on 3 devices").Link!.ToAppUrl());
+        Assert.Equal(7, Find(view, "pending on 3 devices").Count);
+        Assert.Equal(1, Find(view, "agents silent over 7 days").Count);
+    }
+
+    [Fact]
+    public void ManagementToolsListToolsByDevicesWithErrorsAndTheTopMessages()
+    {
+        var view = View("managementToolErrors");
+        var tools = view.Parts.OfType<BarsPart>().Single().Items;
+        Assert.Equal(["Cimian", "ReportMate"], tools.Select(t => t.Label));
+        Assert.Equal("Windows", tools[0].Platform);
+        Assert.Null(tools[1].Platform);
+        Assert.Equal("reportmate://devices?level=error&platform=Windows&tool=installs", tools[0].Link!.ToAppUrl());
+        var top = view.Parts.OfType<ListPart>().Single().Items.Single();
+        Assert.StartsWith("Failed to download", top.Label);
+    }
+
+    [Fact]
+    public void StorageShowsBucketsCapacityAndTheFullest()
+    {
+        var view = View("storage");
+        Assert.Equal(3, Find(view, "devices under 10% free").Count);
+        Assert.Equal("reportmate://hardware?storage=lt5", Find(view, "Under 5% free").Link!.ToAppUrl());
+        Assert.Equal("reportmate://hardware?capacity=le256", Find(view, "256 GB or less").Link!.ToAppUrl());
+        Assert.Equal("reportmate://hardware?platform=macOS&storage=low", Find(view, "macOS").Link!.ToAppUrl());
+        var fullest = Find(view, "Sample Laptop");
+        Assert.Equal("reportmate://devices?search=SAMPLE1", fullest.Link!.ToAppUrl());
+        Assert.StartsWith("3.2% free", fullest.Detail);
+    }
+
+    [Theory]
+    [InlineData("all", "Entra joined", "reportmate://identity?join=entra")]
+    [InlineData("windows", "Workgroup", "reportmate://identity?join=workgroup&platform=Windows")]
+    [InlineData("mac", "Platform SSO / Entra", "reportmate://identity?directory=psso&platform=macOS")]
+    public void DirectoryJoinShowsTheChosenView(string viewKey, string label, string link)
+    {
+        var view = InsightCards.Build("directoryJoin", Card("directoryJoin"), view: viewKey);
+        var donut = view.Parts.OfType<DonutPart>().Single();
+        Assert.Equal(link, donut.Slices.First(s => s.Label == label).Link!.ToAppUrl());
+    }
+
+    [Fact]
+    public void AppUsageListsTheTopAppsAndItsFilters()
+    {
+        var view = InsightCards.Build("appUsage", AppUsage);
+        var apps = view.Parts.OfType<BarsPart>().Single().Items;
+        Assert.Equal(["Adobe Photoshop 2026", "Word"], apps.Select(a => a.Label));
+        var link = apps[0].Link!;
+        Assert.Equal(("applications", "usage/Adobe Photoshop 2026", "Shared"), (link.Section, link.Argument, link["usages"]));
+        var (usages, catalogs) = InsightCards.AppUsageFilters(AppUsage);
+        Assert.Equal(["Shared", "Assigned"], usages.Select(u => u.Value));
+        Assert.Equal(("Production", 90), catalogs.Single());
+        Assert.Equal("reportmate://applications?period=30&type=usage&usages=Shared", InsightCards.HeaderLink(AppUsage)!.ToAppUrl());
     }
 
     [Fact]

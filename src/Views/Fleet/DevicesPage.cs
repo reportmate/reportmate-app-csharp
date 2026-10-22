@@ -139,6 +139,20 @@ public sealed class DevicesPage : FleetPage
             .Build();
 
         table.Margin = new Thickness(0, 20, 0, 0);
+
+        // Management Tools Errors links here with the tool and level it counted. The
+        // device list carries no log data to narrow by, so say so rather than show
+        // a list that silently ignores the link.
+        if (Filter("tool") is { } tool)
+        {
+            var level = Filter("level") ?? "error";
+            var note = Ui.Caption($"Opened from Management Tools Errors for {tool} {level}s. The device list cannot narrow by a "
+                + "tool's log yet, so every device is listed; the dashboard card counts the devices with them.");
+            note.TextWrapping = TextWrapping.Wrap;
+            var card = Ui.Card(note);
+            card.Margin = new Thickness(0, 16, 0, 0);
+            page.Children.Add(card);
+        }
         page.Children.Add(table);
         return page;
     }

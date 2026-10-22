@@ -37,10 +37,10 @@ public sealed class DashboardInsightsModel
     public static readonly TimeSpan SkeletonLimit = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// Read each card from its own endpoint, in parallel. Off until the per-card
-    /// endpoints are deployed; the whole document is one call meanwhile.
+    /// Read each card from its own endpoint, in parallel, so cards paint as they land.
+    /// Off, the whole document is one call, and App Usage is not read.
     /// </summary>
-    public static bool PerCard { get; set; }
+    public static bool PerCard { get; set; } = true;
 
     /// <summary>How many per-card reads run at once.</summary>
     private const int PerCardConcurrency = 4;
@@ -93,11 +93,46 @@ public sealed class DashboardInsightsModel
     /// <summary>True once any card has data, for the page's progress bar.</summary>
     public bool HasDocument => InsightCards.Keys.Any(HasCard);
 
+    private static IReadOnlyList<string> CardKeys => PerCard ? InsightCards.AllKeys : InsightCards.Keys;
+
+    // ── App Usage filters ────────────────────────────────────────────────
+
+    private readonly SortedSet<string> _usages = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SortedSet<string> _catalogs = new(StringComparer.OrdinalIgnoreCase);
+
+    public IReadOnlySet<string> AppUsageUsages => _usages;
+    public IReadOnlySet<string> AppUsageCatalogs => _catalogs;
+
+    /// <summary>Turn an App Usage usage or catalog chip on or off, and read the card again for it.</summary>
+    public Task ToggleAppUsageFilter(bool catalog, string value)
+    {
+        var set = catalog ? _catalogs : _usages;
+        if (!set.Remove(value)) set.Add(value);
+        var scope = Scope;
+        var state = State(scope, InsightCards.AppUsage);
+        state.LoadedAt = null;
+        return state.Loading ? Task.CompletedTask : LoadCardsAsync(scope, [InsightCards.AppUsage]);
+    }
+
+    private string CardPath(string key, PlatformScope scope)
+    {
+        var platform = PlatformParameter(scope);
+        if (key != InsightCards.AppUsage)
+            return $"/api/v1/dashboard/insights/{Uri.EscapeDataString(key)}?platform={platform}";
+        var query = $"platform={platform}&days=30";
+        if (_usages.Count > 0) query += "&usages=" + Uri.EscapeDataString(string.Join(',', _usages));
+        if (_catalogs.Count > 0) query += "&catalogs=" + Uri.EscapeDataString(string.Join(',', _catalogs));
+        return $"/api/v1/dashboard/insights/appUsage?{query}";
+    }
+
+    /// <summary>Redraw every card, after a card-local choice such as Directory Join's view.</summary>
+    public void Redraw() => Changed?.Invoke();
+
     public Task LoadAsync(bool force = false)
     {
         var scope = Scope;
         if (_inFlight.TryGetValue(scope, out var running) && !running.IsCompleted) return running;
-        var stale = InsightCards.Keys.Where(k => force || State(scope, k).LoadedAt is not { } at || DateTime.UtcNow - at >= Fresh).ToList();
+        var stale = CardKeys.Where(k => force || State(scope, k).LoadedAt is not { } at || DateTime.UtcNow - at >= Fresh).ToList();
         if (stale.Count == 0) return Task.CompletedTask;
         var task = PerCard ? LoadCardsAsync(scope, stale) : LoadDocumentAsync(scope, stale);
         _inFlight[scope] = task;
@@ -179,8 +214,7 @@ public sealed class DashboardInsightsModel
         await ReportQueue.RunAllAsync(keys, PerCardConcurrency,
             async (key, ct) =>
             {
-                var r = await FleetApiClient.Instance.GetRawAsync(
-                    $"/api/v1/dashboard/insights/{Uri.EscapeDataString(key)}?platform={PlatformParameter(scope)}", ct);
+                var r = await FleetApiClient.Instance.GetRawAsync(CardPath(key, scope), ct);
                 if (!r.Ok) return Failure(r);
                 using var doc = r.Data!;
                 sections[key] = InsightCards.SectionOf(doc.RootElement, key).Clone();
@@ -233,22 +267,41 @@ public static class InsightWidgets
 
     public static readonly IReadOnlyList<InsightCard> All =
     [
-        new("rebootDebt", "Reboot & Update Debt", "Long uptimes and waiting updates", Accent.Orange, GlyphOf("system"), L("system"), InsightShape.Bars),
-        new("protectionGaps", "Protection Gaps", "Devices missing a protection", Accent.Red, GlyphOf("security"), L("security"), InsightShape.Bars),
-        new("unmanagedDevices", "Unmanaged Devices", "Not enrolled in MDM", Accent.Purple, GlyphOf("management"), L("management")),
-        new("hardwareAtRisk", "Hardware at Risk", "Storage, memory and Intel Macs", Accent.Orange, GlyphOf("hardware"), L("hardware")),
         new("installHealth", "Install Health", "Munki and Cimian across the fleet", Accent.Emerald, GlyphOf("installs"), L("installs"),
             Placement: InsightPlacement.StatusColumn, Hero: true),
-        new("checkinGaps", "Check-in Gaps", "Turned away, and gone quiet", Accent.Red, "",
+        new("rebootDebt", "Reboot & Update Debt", "Long uptimes and waiting updates", Accent.Orange, GlyphOf("system"), L("system"), InsightShape.Bars),
+        new("protectionGaps", "Protection Gaps", "Devices missing a protection", Accent.Red, GlyphOf("security"), L("security"), InsightShape.Bars),
+        new("managementToolErrors", "Management Tools Errors", "Errors in the management tools' logs", Accent.Purple, GlyphOf("management"), L("management"), InsightShape.Bars),
+        new("storage", "Storage", "Free space and capacity", Accent.Orange, GlyphOf("hardware"), L("hardware"), InsightShape.Bars),
+        new("checkinGaps", "Check-in Gaps", "Turned away, and gone quiet", Accent.Red, "\uE7BA",
             DeepLink.For("events", "failures", ("hours", "24"))),
         new("osCurrency", "OS Currency", "On the latest patch for their version", Accent.Purple, GlyphOf("system"), L("system"), InsightShape.Donut),
         new("softwareRisk", "Software Risk", "Vulnerabilities and items behind", Accent.Red, GlyphOf("security"), L("security")),
-        new("expiringCertificates", "Expiring Certificates", "Expiring soon, and already expired", Accent.Yellow, "", L("security")),
-        new("localAdminExposure", "Local Admin Exposure", "Extra local admins and unjoined devices", Accent.Indigo, GlyphOf("identity"), L("identity")),
-        new("unusedSoftware", "App Usage", "The most-used apps", Accent.Blue, GlyphOf("applications"), L("applications"), InsightShape.Bars,
-            Placement: InsightPlacement.ActivityColumn),
+        new("expiringCertificates", "Expiring Certificates", "Expiring soon, and already expired", Accent.Yellow, "\uEB95", L("security")),
+        new("directoryJoin", "Directory Join", "How devices are joined, and who administers them", Accent.Indigo, GlyphOf("identity"), L("identity"), InsightShape.Donut),
         new("connectivityProblems", "Connectivity Problems", "Weak Wi-Fi, poor networks and VPN", Accent.Teal, GlyphOf("network"), L("network")),
+        new(InsightCards.AppUsage, "App Usage", "The most-used apps", Accent.Blue, GlyphOf("applications"),
+            DeepLink.For("applications", null, ("type", "usage"), ("period", "30")), InsightShape.Bars,
+            Placement: InsightPlacement.ActivityColumn),
     ];
+
+    // ── Directory Join's view ────────────────────────────────────────────
+
+    private static string? _directoryChoice;
+    private static PlatformScope _directoryChoiceScope;
+
+    /// <summary>
+    /// Directory Join's view: the platform toggle's, unless the reader picked one in
+    /// the card since the toggle last changed.
+    /// </summary>
+    public static string DirectoryView =>
+        _directoryChoice is { } chosen && _directoryChoiceScope == PlatformFilter.Current ? chosen
+        : PlatformFilter.Current switch
+        {
+            PlatformScope.Windows => "windows",
+            PlatformScope.Mac => "mac",
+            _ => "all",
+        };
 
     /// <summary>The card in whatever state the shared model holds it.</summary>
     public static UIElement Build(InsightCard card)
@@ -265,13 +318,70 @@ public static class InsightWidgets
         }
         else
         {
-            var view = InsightCards.Build(card.Key, model.Card(card.Key), PlatformFilter.Current != PlatformScope.All);
+            var view = InsightCards.Build(card.Key, model.Card(card.Key), PlatformFilter.Current != PlatformScope.All, DirectoryView);
             body = view.Error is { } error ? Failed(error, card.Key) : Render(view, card.Hero);
         }
+        body = WithControls(card, model, body);
+        var header = card.Key == InsightCards.AppUsage && InsightCards.HeaderLink(model.Card(card.Key)) is { } served ? served : card.Header;
 
         var chevron = Ui.Icon("", 12, Ui.Brush("TextTertiaryBrush"));
         var block = Ui.StatBlock(card.Title, card.Subtitle, card.Glyph, card.Accent, body, chevron);
-        return Linkable.LinkHeader(block, card.Header);
+        return Linkable.LinkHeader(block, header);
+    }
+
+    /// <summary>
+    /// The controls a card carries above its body: Directory Join's All / Windows /
+    /// Mac views, and App Usage's usage and catalog chips.
+    /// </summary>
+    private static UIElement WithControls(InsightCard card, DashboardInsightsModel model, UIElement body)
+    {
+        if (card.Key == "directoryJoin")
+        {
+            var views = Ui.Segmented(InsightCards.DirectoryViews, DirectoryView, key =>
+            {
+                _directoryChoice = key;
+                _directoryChoiceScope = PlatformFilter.Current;
+                model.Redraw();
+            });
+            views.Margin = new Thickness(0, 0, 0, 12);
+            views.HorizontalAlignment = HorizontalAlignment.Left;
+            return Stack(views, body);
+        }
+
+        if (card.Key == InsightCards.AppUsage)
+        {
+            var (usages, catalogs) = InsightCards.AppUsageFilters(model.Card(card.Key));
+            if (usages.Count == 0 && catalogs.Count == 0) return body;
+            var filters = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
+            void Row(string heading, IReadOnlyList<(string Value, int Devices)> options, IReadOnlySet<string> chosen, bool catalog)
+            {
+                if (options.Count == 0) return;
+                filters.Children.Add(Eyebrow(heading, filters.Children.Count == 0 ? 0 : 8));
+                var wrap = new WrapPanel();
+                foreach (var (value, devices) in options)
+                {
+                    var chip = Ui.FilterChip(value, devices, Tone.Info, chosen.Contains(value));
+                    chip.Margin = new Thickness(0, 0, 6, 6);
+                    chip.Cursor = System.Windows.Input.Cursors.Hand;
+                    chip.ToolTip = chosen.Contains(value) ? $"Stop filtering by {value}" : $"Show only {value}";
+                    chip.MouseLeftButtonUp += (_, _) => _ = model.ToggleAppUsageFilter(catalog, value);
+                    wrap.Children.Add(chip);
+                }
+                filters.Children.Add(wrap);
+            }
+            Row("USAGE", usages, model.AppUsageUsages, catalog: false);
+            Row("CATALOG", catalogs, model.AppUsageCatalogs, catalog: true);
+            return Stack(filters, body);
+        }
+        return body;
+
+        static StackPanel Stack(UIElement top, UIElement rest)
+        {
+            var panel = new StackPanel();
+            panel.Children.Add(top);
+            panel.Children.Add(rest);
+            return panel;
+        }
     }
 
     // ── Rendering a card's parts ─────────────────────────────────────────

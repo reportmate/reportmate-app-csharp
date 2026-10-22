@@ -338,6 +338,49 @@ public static partial class Insights
         };
     }
 
+    /// <summary>
+    /// A Mac's directory state, as the Directory Join card's Mac view counts it:
+    /// <c>psso</c> (Platform SSO registered, or Entra joined), <c>bound</c> (bound to
+    /// AD or LDAP), otherwise <c>unbound</c>.
+    /// </summary>
+    public static string MacDirectory(JsonElement row)
+    {
+        var ds = Either(row, "directoryServices", "directory_services") ?? default;
+        bool Flag(JsonElement? node, params string[] names) =>
+            node is { ValueKind: JsonValueKind.Object } n && names.Any(name => BoolishIfPresent(n, name) == true);
+        var entra = Flag(Either(ds, "azureAd", "azure_ad") ?? Either(ds, "entraId", "entra_id"),
+            "joined", "is_aad_joined", "isAadJoined", "is_entra_joined", "isEntraJoined");
+        var psso = Flag(Either(row, "platformSSOUsers", "platform_sso_users"), "deviceRegistered", "device_registered");
+        if (psso || entra) return "psso";
+        var bound = Flag(Either(ds, "activeDirectory", "active_directory"), "bound", "is_domain_joined", "isDomainJoined")
+            || Flag(Prop(ds, "ldap"), "bound");
+        return bound ? "bound" : "unbound";
+    }
+
+    /// <summary>
+    /// The Storage card's free-space bucket: <c>lt5</c>, <c>5-10</c>, <c>10-20</c> or
+    /// <c>20+</c>, or null when the device reports no internal storage.
+    /// </summary>
+    public static string? FreeSpaceKey(JsonElement row)
+    {
+        if (Hardware.StorageBytes(row) is not { Total: > 0, Free: > 0 } s) return null;
+        var ratio = (double)s.Free / s.Total;
+        return ratio < 0.05 ? "lt5" : ratio < 0.10 ? "5-10" : ratio < 0.20 ? "10-20" : "20+";
+    }
+
+    /// <summary>
+    /// The Storage card's capacity bucket, on the server's boundaries: <c>le256</c>
+    /// under 384 GB, <c>512</c> under 768 GB, <c>1t</c> under 1.536 TB, else <c>2t+</c>.
+    /// </summary>
+    public static string? CapacityKey(JsonElement row)
+    {
+        if (Hardware.StorageBytes(row) is not { Total: > 0 } s) return null;
+        return s.Total < 384_000_000_000 ? "le256"
+            : s.Total < 768_000_000_000 ? "512"
+            : s.Total < 1_536_000_000_000 ? "1t"
+            : "2t+";
+    }
+
     /// <summary>The local administrator accounts a device reports.</summary>
     public static int AdminCount(JsonElement row) =>
         Prop(row, "summary") is { } summary ? Int(summary, "adminUsers") : 0;

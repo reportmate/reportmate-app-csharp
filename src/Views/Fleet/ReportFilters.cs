@@ -36,6 +36,17 @@ public static class ReportFilters
     private static Rule Has(Func<JsonElement, bool> test) => Simple((row, wanted) =>
         On(wanted) ? test(row) : Off(wanted) && !test(row));
 
+    /// <summary>
+    /// A report narrowed to one platform by its link, without touching the toolbar's
+    /// scope: <c>platform=macOS|Windows</c>.
+    /// </summary>
+    private static readonly Rule PlatformRule = Simple((r, w) => w.ToLowerInvariant() switch
+    {
+        "macos" or "mac" => Insights.IsMac(r),
+        "windows" or "win" => Insights.IsWindows(r),
+        _ => false,
+    });
+
     private static bool Eq(string? a, string b) => string.Equals(a?.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
 
     private static readonly Dictionary<string, Dictionary<string, Rule>> Rules = new(StringComparer.OrdinalIgnoreCase)
@@ -99,20 +110,18 @@ public static class ReportFilters
             ["provider"] = Simple((r, w) => Eq(Management.Provider(r), w)),
             ["enrolled"] = Has(r => Insights.Boolish(r, "isEnrolled")),
             ["enrollmentType"] = Simple((r, w) => Eq(Insights.Str(r, "enrollmentType"), w)),
-            // This report only: the toolbar's platform scope is left as it is.
-            ["platform"] = Simple((r, w) => w.ToLowerInvariant() switch
-            {
-                "macos" or "mac" => Insights.IsMac(r),
-                "windows" or "win" => Insights.IsWindows(r),
-                _ => false,
-            }),
+            // The toolbar's platform scope is left as it is.
+            ["platform"] = PlatformRule,
             ["lastSeen"] = Simple((r, w) => Eq(Insights.LastSeenKey(r, DateTime.UtcNow), w)),
         },
 
         ["hardware"] = new(StringComparer.OrdinalIgnoreCase)
         {
             ["arch"] = Simple((r, w) => Eq(Insights.Family(r), w)),
-            ["storage"] = Simple((r, w) => Eq(w, "low") && Insights.IsLowStorage(r)),
+            // low is under 10% free; the other keys are the Storage card's buckets.
+            ["storage"] = Simple((r, w) => Eq(w, "low") ? Insights.IsLowStorage(r) : Eq(Insights.FreeSpaceKey(r), w)),
+            ["capacity"] = Simple((r, w) => Eq(Insights.CapacityKey(r), w)),
+            ["platform"] = PlatformRule,
             ["memory"] = Simple((r, w) => Eq(w, "le8") && Insights.IsLowMemory(r)),
             ["type"] = Simple((r, w) => w.ToLowerInvariant() switch
             {
@@ -132,9 +141,17 @@ public static class ReportFilters
             {
                 "errors" or "error" => Insights.IsErrorStatus(InstallLabel.Status(r)),
                 "warnings" or "warning" => Insights.IsWarningStatus(InstallLabel.Status(r)),
+                "pending" => InstallLabel.Status(r)?.Contains("pending", StringComparison.OrdinalIgnoreCase) == true,
                 _ => Eq(InstallLabel.Status(r), w),
             }),
             ["item"] = Simple((r, w) => Eq(Insights.Str(r, "itemName"), w)),
+            // Munki runs on the Macs and Cimian on Windows.
+            ["agent"] = Simple((r, w) => w.ToLowerInvariant() switch
+            {
+                "munki" => Insights.IsMac(r),
+                "cimian" => Insights.IsWindows(r),
+                _ => false,
+            }),
         },
 
         ["identity"] = new(StringComparer.OrdinalIgnoreCase)
@@ -148,6 +165,8 @@ public static class ReportFilters
                 _ => false,
             }),
             ["join"] = Simple((r, w) => Eq(Insights.JoinType(r), w)),
+            ["directory"] = Simple((r, w) => Insights.IsMac(r) && Eq(Insights.MacDirectory(r), w)),
+            ["platform"] = PlatformRule,
             ["usage"] = Simple((r, w) => Eq(Insights.Usage(r), w)),
         },
 

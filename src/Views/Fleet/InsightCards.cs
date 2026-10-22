@@ -54,13 +54,23 @@ public sealed record CardView(IReadOnlyList<CardPart> Parts, string? Error = nul
 /// </summary>
 public static class InsightCards
 {
-    /// <summary>The card keys in the document, in display order.</summary>
+    /// <summary>The cards the insights endpoints serve, in the server's order.</summary>
     public static readonly IReadOnlyList<string> Keys =
     [
-        "rebootDebt", "protectionGaps", "unmanagedDevices", "hardwareAtRisk",
-        "installHealth", "checkinGaps", "osCurrency", "softwareRisk",
-        "expiringCertificates", "localAdminExposure", "unusedSoftware", "connectivityProblems",
+        "installHealth", "rebootDebt", "protectionGaps", "managementToolErrors", "storage",
+        "checkinGaps", "osCurrency", "softwareRisk", "expiringCertificates", "directoryJoin",
+        "connectivityProblems",
     ];
+
+    /// <summary>App Usage: its own endpoint, filtered by usage and catalog.</summary>
+    public const string AppUsage = "appUsage";
+
+    /// <summary>Every card the dashboard reads, App Usage included.</summary>
+    public static readonly IReadOnlyList<string> AllKeys = [.. Keys, AppUsage];
+
+    /// <summary>The Directory Join card's three views.</summary>
+    public static readonly IReadOnlyList<(string Key, string Label)> DirectoryViews =
+        [("all", "All"), ("windows", "Windows"), ("mac", "Mac")];
 
     // ── Responses ────────────────────────────────────────────────────────
 
@@ -70,7 +80,9 @@ public static class InsightCards
     /// the endpoint settles on.
     /// </summary>
     public static JsonElement SectionOf(JsonElement root, string key) =>
-        Insights.Prop(root, "cards") is { } cards && Insights.Prop(cards, key) is { } inCards ? inCards
+        // The deployed shape: {card, platform, includeArchived, generatedAt, data}.
+        Insights.Prop(root, "data") is { ValueKind: JsonValueKind.Object } data && Insights.Prop(root, "card") is not null ? data
+        : Insights.Prop(root, "cards") is { } cards && Insights.Prop(cards, key) is { } inCards ? inCards
         : Insights.Prop(root, key) is { ValueKind: JsonValueKind.Object } named ? named
         : root;
 
@@ -139,7 +151,8 @@ public static class InsightCards
 
     /// <summary>The card's parts, or its error when the server could not compute it.</summary>
     /// <param name="scoped">True when the toolbar narrows the dashboard to one platform.</param>
-    public static CardView Build(string key, JsonElement? card, bool scoped = false)
+    /// <param name="view">Directory Join's view: all, windows or mac.</param>
+    public static CardView Build(string key, JsonElement? card, bool scoped = false, string view = "all")
     {
         if (card is not { ValueKind: JsonValueKind.Object } c)
             return new CardView([], "The server sent nothing for this card.");
@@ -148,18 +161,18 @@ public static class InsightCards
 
         return key switch
         {
+            "installHealth" => InstallHealth(c),
             "rebootDebt" => RebootDebt(c),
             "protectionGaps" => ProtectionGaps(c),
-            "unmanagedDevices" => Unmanaged(c),
-            "hardwareAtRisk" => HardwareAtRisk(c),
-            "installHealth" => InstallHealth(c),
+            "managementToolErrors" => ManagementTools(c),
+            "storage" => Storage(c),
             "checkinGaps" => CheckinGaps(c, scoped),
             "osCurrency" => OsCurrency(c),
             "softwareRisk" => SoftwareRisk(c),
             "expiringCertificates" => Certificates(c),
-            "localAdminExposure" => LocalAdmins(c),
-            "unusedSoftware" => UnusedSoftware(c),
+            "directoryJoin" => DirectoryJoin(c, view),
             "connectivityProblems" => Connectivity(c),
+            AppUsage => AppUsageCard(c),
             _ => new CardView([], $"This app does not know the card {key}."),
         };
     }
@@ -211,54 +224,11 @@ public static class InsightCards
         return new CardView(parts);
     }
 
-    private static CardView Unmanaged(JsonElement c)
-    {
-        var devices = Insights.Int(c, "devices");
-        var unmanaged = Count(c, "unmanaged");
-        var pct = Count(c, "unmanaged", "pct");
-        var parts = new List<CardPart>
-        {
-            new FiguresPart(
-            [
-                new Metric("not enrolled in MDM", unmanaged, LinkOf(c, "unmanaged"), When(unmanaged, Severity.Bad),
-                    Detail: $"{pct}% of {devices:N0} devices"),
-            ]),
-            new NotePart($"{Insights.Int(c, "enrolledPct")}% of devices are enrolled."),
-        };
-
-        var byPlatform = Array(c, "byPlatform")
-            .Select(p => new Metric(Insights.Str(p, "platform"), Insights.Int(p, "count"),
-                ToDeepLink(Insights.Prop(p, "link")), Severity.Bad,
-                Value: $"{Insights.Int(p, "count"):N0} of {Insights.Int(p, "devices"):N0}",
-                Fraction: Insights.Int(p, "devices") == 0 ? 0 : (double)Insights.Int(p, "count") / Insights.Int(p, "devices"),
-                Platform: Insights.Str(p, "platform")))
-            .ToList();
-        if (byPlatform.Count > 0) parts.Add(new BarsPart("BY PLATFORM", byPlatform));
-
-        var lastSeen = Array(c, "lastSeen")
-            .Select(s => new Metric(Insights.Str(s, "label"), Insights.Int(s, "count"), ToDeepLink(Insights.Prop(s, "link"))))
-            .ToList();
-        if (lastSeen.Count > 0) parts.Add(new BarsPart("LAST SEEN", lastSeen));
-
-        var recent = Array(c, "recent")
-            .Select(r => new Metric(Insights.Str(r, "name"), 0, ToDeepLink(Insights.Prop(r, "link")),
-                Detail: Ago(Insights.Str(r, "lastSeen")), Platform: Insights.Str(r, "platform")))
-            .ToList();
-        if (recent.Count > 0) parts.Add(new ListPart("RECENTLY SEEN", recent));
-        return new CardView(parts);
-    }
-
-    private static CardView HardwareAtRisk(JsonElement c) => new(
-    [
-        new FiguresPart(
-        [
-            Figure(c, "lowStorage", "under 10% storage free", When(Count(c, "lowStorage"), Severity.Bad)),
-            Figure(c, "lowMemory", "8 GB RAM or less", When(Count(c, "lowMemory"), Severity.Warning)),
-            Figure(c, "intelMacs", "Intel Macs", When(Count(c, "intelMacs"), Severity.Warning),
-                $"of {Count(c, "intelMacs", "macs"):N0} Macs; at risk on the next macOS"),
-        ]),
-    ]);
-
+    /// <summary>
+    /// Install Health: devices with errors and warnings as the headline, then each
+    /// agent's split, item counts, pending installs, silent agents and the items
+    /// failing on the most devices.
+    /// </summary>
     private static CardView InstallHealth(JsonElement c)
     {
         var parts = new List<CardPart>
@@ -269,16 +239,163 @@ public static class InsightCards
                 Figure(c, "withWarnings", "devices with warnings", When(Count(c, "withWarnings"), Severity.Warning)),
             ]),
         };
+
+        var agents = Array(c, "byAgent").ToList();
+        if (agents.Count > 0)
+            parts.Add(new ListPart("BY AGENT", agents.Select(a =>
+            {
+                var errors = Count(a, "withErrors");
+                var warnings = Count(a, "withWarnings");
+                return new Metric(Insights.Str(a, "name"), errors, LinkOf(a, "withErrors"), When(errors, Severity.Bad),
+                    Detail: $"{errors:N0} with errors · {warnings:N0} with warnings · {Insights.Int(a, "devices"):N0} devices",
+                    Platform: Insights.Str(a, "platform"));
+            }).ToList()));
+
+        var pendingItems = Count(c, "pending", "items");
+        parts.Add(new ChipsPart(
+        [
+            new Metric("error items", Count(c, "errorItems"), LinkOf(c, "errorItems"), Severity.Bad),
+            new Metric("warning items", Count(c, "warningItems"), LinkOf(c, "warningItems"), Severity.Warning),
+            new Metric($"pending on {Count(c, "pending", "devices"):N0} devices", pendingItems, LinkOf(c, "pending"), Severity.Info),
+            Figure(c, "silentAgents", $"agents silent over {Count(c, "silentAgents", "thresholdDays")} days", Severity.Warning),
+        ]));
+
         var failing = Array(c, "topFailing")
             .Select(i => new Metric(Insights.Str(i, "name"), Insights.Int(i, "devices"), ToDeepLink(Insights.Prop(i, "link")), Severity.Bad))
             .ToList();
         parts.Add(failing.Count > 0 ? new BarsPart("TOP FAILING ITEMS", failing) : new NotePart("No managed item is failing."));
-        parts.Add(new ChipsPart(
-        [
-            Figure(c, "silentAgents", $"agents silent over {Count(c, "silentAgents", "thresholdDays")} days", Severity.Warning),
-        ]));
         return new CardView(parts);
     }
+
+    /// <summary>
+    /// Management Tools Errors: per tool, the devices whose logs carried errors in the
+    /// window, and the error messages seen on the most devices.
+    /// </summary>
+    private static CardView ManagementTools(JsonElement c)
+    {
+        var hours = Insights.Int(c, "windowHours");
+        var tools = Array(c, "tools")
+            .Select(t =>
+            {
+                var withErrors = Insights.Int(t, "devicesWithErrors");
+                return new Metric(Insights.Str(t, "name"), withErrors, ToDeepLink(Insights.Prop(t, "link")), When(withErrors, Severity.Bad),
+                    Value: $"{withErrors:N0}",
+                    Detail: $"{withErrors:N0} devices with errors · {Insights.Int(t, "devicesWithWarnings"):N0} with warnings · {Insights.Int(t, "errorLines"):N0} error lines",
+                    Platform: Insights.Str(t, "platform") is { Length: > 0 } p ? p : null);
+            })
+            .ToList();
+        // Per tool only: a device can log errors from several tools, so a fleet
+        // total would count it more than once.
+        var parts = new List<CardPart> { new NotePart($"In the last {hours} hours, from the tools' own logs.") };
+        if (tools.Count > 0) parts.Add(new BarsPart("DEVICES WITH ERRORS, BY TOOL", tools));
+        else parts.Add(new NotePart("No management tool logged an error."));
+
+        var messages = Array(c, "topErrors")
+            .Select(m => new Metric(Insights.Str(m, "message"), Insights.Int(m, "devices"), ToDeepLink(Insights.Prop(m, "link")),
+                Detail: $"{Insights.Str(m, "name")} · {Insights.Int(m, "devices"):N0} devices"))
+            .ToList();
+        if (messages.Count > 0) parts.Add(new ListPart("TOP ERRORS", messages));
+        return new CardView(parts);
+    }
+
+    /// <summary>
+    /// Storage: devices under 10% free by platform, the free-space buckets, the
+    /// capacity mix and the fullest devices.
+    /// </summary>
+    private static CardView Storage(JsonElement c)
+    {
+        var parts = new List<CardPart>
+        {
+            new FiguresPart(
+            [
+                new Metric("devices under 10% free", Count(c, "lowStorage"), LinkOf(c, "lowStorage"), When(Count(c, "lowStorage"), Severity.Bad),
+                    Detail: $"of {Insights.Int(c, "devices"):N0} devices measured"),
+            ]),
+        };
+
+        var low = Node(c, "lowStorage") is { } l ? l : default;
+        var byPlatform = Array(low, "byPlatform")
+            .Select(p => new Metric(Insights.Str(p, "platform"), Insights.Int(p, "count"), ToDeepLink(Insights.Prop(p, "link")),
+                Severity.Bad, Platform: Insights.Str(p, "platform")))
+            .ToList();
+        if (byPlatform.Count > 1) parts.Add(new BarsPart("UNDER 10% FREE, BY PLATFORM", byPlatform));
+
+        parts.Add(new BarsPart("FREE SPACE", Array(c, "freeSpace")
+            .Select(b => new Metric(Insights.Str(b, "label"), Insights.Int(b, "count"), ToDeepLink(Insights.Prop(b, "link")),
+                Insights.Str(b, "key") switch { "lt5" => Severity.Bad, "5-10" => Severity.Warning, _ => Severity.Neutral }))
+            .ToList()));
+        parts.Add(new BarsPart("CAPACITY", Array(c, "capacity")
+            .Select(b => new Metric(Insights.Str(b, "label"), Insights.Int(b, "count"), ToDeepLink(Insights.Prop(b, "link"))))
+            .ToList()));
+
+        var fullest = Array(c, "fullest")
+            .Select(d => new Metric(Insights.Str(d, "name"), Insights.Number(d, "freePct") ?? 0, ToDeepLink(Insights.Prop(d, "link")),
+                Detail: $"{Insights.Number(d, "freePct") ?? 0:0.#}% free · {Gb(Insights.Number(d, "freeBytes"))} of {Gb(Insights.Number(d, "totalBytes"))}",
+                Platform: Insights.Str(d, "platform")))
+            .ToList();
+        if (fullest.Count > 0) parts.Add(new ListPart("FULLEST", fullest));
+        return new CardView(parts);
+    }
+
+    private static string Gb(double? bytes) => bytes is not > 0 ? "?"
+        : bytes >= 1e12 ? $"{bytes / 1e12:0.#} TB" : $"{bytes / 1e9:0} GB";
+
+    /// <summary>Directory Join in one of its three views: the join donut, extra admins, shared and assigned.</summary>
+    private static CardView DirectoryJoin(JsonElement c, string view)
+    {
+        if (Node(c, "views") is not { } views) return new CardView([], "The server sent no directory views.");
+        if (Node(views, view) is not { ValueKind: JsonValueKind.Object } v) v = Node(views, "all") ?? default;
+        var segments = Array(v, "segments")
+            .Select(s => new Metric(Insights.Str(s, "label"), Insights.Int(s, "count"), ToDeepLink(Insights.Prop(s, "link")),
+                Insights.Str(s, "key") switch
+                {
+                    "entra" or "psso" => Severity.Info,
+                    "hybrid" or "domain" or "bound" => Severity.Good,
+                    _ => Severity.Warning,
+                }))
+            .ToList();
+        return new CardView(
+        [
+            new DonutPart(Insights.Int(v, "devices").ToString("N0", CultureInfo.CurrentCulture), "devices", segments),
+            new ChipsPart(
+            [
+                Figure(v, "extraAdmins", "with extra local admins", Severity.Warning),
+                Figure(v, "shared", "shared", Severity.Neutral),
+                Figure(v, "assigned", "assigned", Severity.Neutral),
+            ]),
+        ]);
+    }
+
+    /// <summary>App Usage: the ten most-used apps within the chosen usages and catalogs.</summary>
+    private static CardView AppUsageCard(JsonElement c)
+    {
+        var apps = Array(c, "apps")
+            .Select(a => new Metric(Insights.Str(a, "name"), Insights.Number(a, "totalHours") ?? 0, ToDeepLink(Insights.Prop(a, "link")),
+                Severity.Info, Value: $"{Insights.Number(a, "totalHours") ?? 0:N0} h",
+                Detail: Insights.Int(a, "activeDevices") is var d and > 0 ? $"{d:N0} devices" : null))
+            .ToList();
+        var parts = new List<CardPart>();
+        parts.Add(apps.Count > 0
+            ? new BarsPart("MOST USED", apps)
+            : new NotePart("No application usage matches these filters."));
+        parts.Add(new NotePart($"Over the last {Insights.Int(c, "days")} days."));
+        return new CardView(parts);
+    }
+
+    /// <summary>The usage and catalog values App Usage can be filtered by, with their device counts.</summary>
+    public static (IReadOnlyList<(string Value, int Devices)> Usages, IReadOnlyList<(string Value, int Devices)> Catalogs) AppUsageFilters(JsonElement? card)
+    {
+        if (card is not { ValueKind: JsonValueKind.Object } c || Node(c, "available") is not { } available) return ([], []);
+        IReadOnlyList<(string, int)> Read(string name) => Array(available, name)
+            .Select(o => (Insights.Str(o, "value"), Insights.Int(o, "devices")))
+            .Where(o => o.Item1.Length > 0)
+            .ToList();
+        return (Read("usages"), Read("catalogs"));
+    }
+
+    /// <summary>App Usage's header link: the applications report in usage mode with the same filters.</summary>
+    public static DeepLink? HeaderLink(JsonElement? card) =>
+        card is { ValueKind: JsonValueKind.Object } c ? ToDeepLink(Insights.Prop(c, "link")) : null;
 
     private static CardView CheckinGaps(JsonElement c, bool scoped)
     {
@@ -375,47 +492,6 @@ public static class InsightCards
             })
             .ToList();
         if (soonest.Count > 0) parts.Add(new ListPart("EXPIRING SOONEST", soonest));
-        return new CardView(parts);
-    }
-
-    private static CardView LocalAdmins(JsonElement c)
-    {
-        var parts = new List<CardPart>
-        {
-            new FiguresPart(
-            [
-                Figure(c, "extraAdmins", "devices with extra local admins", When(Count(c, "extraAdmins"), Severity.Warning)),
-                Figure(c, "workgroup", "not Entra or domain joined", When(Count(c, "workgroup"), Severity.Warning)),
-            ]),
-            new BarsPart("ADMINS PER DEVICE", Array(c, "byAdminCount")
-                .Select(b => new Metric(Insights.Str(b, "label"), Insights.Int(b, "count"), ToDeepLink(Insights.Prop(b, "link")), Severity.Warning))
-                .ToList()),
-        };
-        var top = Array(c, "topDevices")
-            .Select(d => new Metric(Insights.Str(d, "name"), Insights.Int(d, "admins"), ToDeepLink(Insights.Prop(d, "link")),
-                Detail: $"{Insights.Int(d, "admins"):N0} admins", Platform: Insights.Str(d, "platform")))
-            .ToList();
-        if (top.Count > 0) parts.Add(new ListPart("MOST ADMINS", top));
-        return new CardView(parts);
-    }
-
-    /// <summary>
-    /// App Usage: the most-used apps over the window. Revision 3 drops the least-used
-    /// list, so the section's <c>leastUsed</c> is ignored if the server still sends it.
-    /// </summary>
-    private static CardView UnusedSoftware(JsonElement c)
-    {
-        var most = Array(c, "mostUsed")
-            .Select(a => new Metric(Insights.Str(a, "name"), Insights.Number(a, "totalHours") ?? 0, ToDeepLink(Insights.Prop(a, "link")),
-                Severity.Info, Value: $"{Insights.Number(a, "totalHours") ?? 0:N0} h",
-                Detail: Insights.Int(a, "activeDevices") is var d and > 0 ? $"{d:N0} devices" : null))
-            .ToList();
-
-        var parts = new List<CardPart>();
-        parts.Add(most.Count > 0
-            ? new BarsPart("MOST USED", most)
-            : new NotePart("No application usage has been reported."));
-        parts.Add(new NotePart($"Over the last {Insights.Int(c, "days")} days."));
         return new CardView(parts);
     }
 

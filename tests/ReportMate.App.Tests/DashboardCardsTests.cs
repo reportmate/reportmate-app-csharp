@@ -307,6 +307,57 @@ public class DashboardCardsTests
         Assert.Equal((section, value), (link.Section, link[key]));
     }
 
+    [Fact]
+    public void TheNewHardwareInstallsAndIdentityLinksFilterTheirReports()
+    {
+        const long Gb = 1_000_000_000;
+        var hardware = Rows($$"""
+            [{"serialNumber":"SAMPLE1","platform":"macOS","storage":[{"capacity":{{250 * Gb}},"freeSpace":{{10 * Gb}}}]},
+             {"serialNumber":"SAMPLE2","platform":"Windows","storage":[{"capacity":{{500 * Gb}},"freeSpace":{{40 * Gb}}}]},
+             {"serialNumber":"SAMPLE3","platform":"Windows","storage":[{"capacity":{{1000 * Gb}},"freeSpace":{{150 * Gb}}}]},
+             {"serialNumber":"SAMPLE4","platform":"macOS","storage":[{"capacity":{{2000 * Gb}},"freeSpace":{{1000 * Gb}}}]}]
+            """);
+        Assert.Equal(["SAMPLE1"], Serials("hardware", "storage", "lt5", hardware));
+        Assert.Equal(["SAMPLE2"], Serials("hardware", "storage", "5-10", hardware));
+        Assert.Equal(["SAMPLE3"], Serials("hardware", "storage", "10-20", hardware));
+        Assert.Equal(["SAMPLE4"], Serials("hardware", "storage", "20+", hardware));
+        Assert.Equal(["SAMPLE1", "SAMPLE2"], Serials("hardware", "storage", "low", hardware));
+        Assert.Equal(["SAMPLE1"], Serials("hardware", "capacity", "le256", hardware));
+        Assert.Equal(["SAMPLE2"], Serials("hardware", "capacity", "512", hardware));
+        Assert.Equal(["SAMPLE3"], Serials("hardware", "capacity", "1t", hardware));
+        Assert.Equal(["SAMPLE4"], Serials("hardware", "capacity", "2t+", hardware));
+        Assert.Equal(["SAMPLE1", "SAMPLE4"], Serials("hardware", "platform", "macOS", hardware));
+
+        var installs = Rows("""
+            [{"serialNumber":"SAMPLE1","platform":"macOS","itemName":"Zoom","currentStatus":"pending_install"},
+             {"serialNumber":"SAMPLE2","platform":"Windows","itemName":"Zoom","currentStatus":"Installed"}]
+            """);
+        Assert.Equal(["SAMPLE1"], Serials("installs", "filter", "pending", installs));
+        Assert.Equal(["SAMPLE1"], Serials("installs", "agent", "munki", installs));
+        Assert.Equal(["SAMPLE2"], Serials("installs", "agent", "cimian", installs));
+
+        var identity = Rows("""
+            [{"serialNumber":"SAMPLE1","platform":"macOS","platformSSOUsers":{"deviceRegistered":true}},
+             {"serialNumber":"SAMPLE2","platform":"macOS","directoryServices":{"activeDirectory":{"bound":true}}},
+             {"serialNumber":"SAMPLE3","platform":"macOS","directoryServices":{}},
+             {"serialNumber":"SAMPLE4","platform":"Windows","directoryServices":{"azureAd":{"joined":true}}}]
+            """);
+        Assert.Equal(["SAMPLE1"], Serials("identity", "directory", "psso", identity));
+        Assert.Equal(["SAMPLE2"], Serials("identity", "directory", "bound", identity));
+        Assert.Equal(["SAMPLE3"], Serials("identity", "directory", "unbound", identity));
+        Assert.Equal(["SAMPLE4"], Serials("identity", "platform", "Windows", identity));
+    }
+
+    [Fact]
+    public void ADeviceLinkWithAToolKeepsItsParametersWhenParsed()
+    {
+        var link = DeepLink.Parse("reportmate://device/SAMPLE2?tab=management&tool=installs&level=error")!;
+        Assert.Equal(("device", "SAMPLE2", "management", "installs", "error"),
+            (link.Section, link.Argument, link.DeviceTab, link["tool"], link["level"]));
+        var devices = DeepLink.Parse("reportmate://devices?tool=installs&level=error")!;
+        Assert.Equal(("installs", "error"), (devices["tool"], devices["level"]));
+    }
+
     // ── App usage ────────────────────────────────────────────────────────
 
     [Fact]
