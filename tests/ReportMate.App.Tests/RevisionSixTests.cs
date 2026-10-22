@@ -5,7 +5,7 @@ using Xunit;
 
 namespace ReportMate.App.Tests;
 
-/// <summary>Revision 6: the User Accounts card, the Tools Logs report, CSV export and the identity report's new filters.</summary>
+/// <summary>Revision 6: the User Accounts card, the Management Logs view, CSV export and the identity report's new filters.</summary>
 public class RevisionSixTests
 {
     private static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement;

@@ -6,7 +6,7 @@ using ReportMate.App.Views.Shared;
 namespace ReportMate.App.Views.Fleet;
 
 /// <summary>
-/// Management › Tools Logs: the management tools' own logs across the fleet, the
+/// Management › Management Tools Logs: the management tools' own logs across the fleet, the
 /// second view of the Management report beside Enrollment. Per tool, the devices
 /// that logged errors and warnings and the trend over the window; the common
 /// messages; and the devices behind them, each opening its device page on the log
@@ -19,18 +19,23 @@ public sealed class ManagementLogsPage : FleetPage
 
     private static ReportArea Area => ReportArea.ById("management")!;
 
-    protected override (string, string, Accent)? Heading =>
-        ("Management", "The management tools' own logs across the fleet", Area.Accent);
+    private const string LogsSubtitle = "The management tools' own logs across the fleet";
 
-    /// <summary>The Management report's two views, and which one is showing.</summary>
-    internal static UIElement ViewSwitch(FrameworkElement from, bool logs)
+    protected override (string, string, Accent)? Heading => ("Management Tools Logs", LogsSubtitle, Area.Accent);
+
+    /// <summary>
+    /// The Management report's header: in the title's place, a switch between its two
+    /// views, with the subtitle of whichever one is showing.
+    /// </summary>
+    internal static Grid Header(FrameworkElement from, bool logs, string glyph, UIElement? right = null)
     {
-        var views = Ui.Segmented([("enrollment", "Enrollment"), ("logs", "Tools Logs")], logs ? "logs" : "enrollment", key =>
-        {
-            if (key == "logs" && !logs) DashboardView.Follow(from, InsightCards.ToolsLogsLink());
-            else if (key == "enrollment" && logs) DashboardView.Follow(from, DeepLink.For("management"));
-        });
-        return views;
+        var views = Ui.Segmented([("service", "Device Management Service"), ("logs", "Management Tools Logs")],
+            logs ? "logs" : "service", key =>
+            {
+                if (key == "logs" && !logs) DashboardView.Follow(from, InsightCards.ToolsLogsLink());
+                else if (key == "service" && logs) DashboardView.Follow(from, DeepLink.For("management"));
+            });
+        return Ui.TabHeader(views, logs ? LogsSubtitle : Area.Subtitle, glyph, Area.Accent, right);
     }
 
     protected override async Task<UIElement> BuildAsync()
@@ -46,8 +51,7 @@ public sealed class ManagementLogsPage : FleetPage
             : _filters;
 
         var page = new StackPanel();
-        page.Children.Add(Ui.TabHeader("Management", "The management tools' own logs across the fleet", Area.Glyph, Area.Accent,
-            ViewSwitch(this, logs: true)));
+        page.Children.Add(Header(this, logs: true, Area.Glyph));
 
         var result = await FleetApiClient.Instance.GetRawAsync(filters.Path());
         page.Children.Add(FilterBar());

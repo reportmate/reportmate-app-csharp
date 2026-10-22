@@ -267,7 +267,7 @@ public partial class DashboardView : UserControl
         _syncing = true;
         try
         {
-            // Tools Logs is the Management report's second view, under its tab.
+            // Management Tools Logs is the Management report's second view, under its tab.
             var tab = _current == "management-logs" ? "report:management" : _current;
             foreach (var child in TabBar.Children)
                 if (child is RadioButton rb && rb.Tag?.ToString() == tab) { rb.IsChecked = true; return; }
@@ -370,7 +370,7 @@ public partial class DashboardView : UserControl
                 ShowFresh("report:applications");
                 return;
 
-            // management/logs is the Management report's second view, Tools Logs.
+            // management/logs is the Management report's second view, Management Tools Logs.
             case "management" when link.Argument is { } mgmt && mgmt.Equals("logs", StringComparison.OrdinalIgnoreCase):
                 PendingLink = link;
                 ShowFresh("management-logs");

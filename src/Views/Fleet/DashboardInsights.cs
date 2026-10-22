@@ -272,6 +272,15 @@ public sealed record InsightCard(
 /// </summary>
 public static class InsightWidgets
 {
+    /// <summary>Segoe MDL2 glyphs for cards whose module glyph would not fit or would collide.</summary>
+    private static class Glyphs
+    {
+        public const string Download = "\uE896";
+        public const string HardDrive = "\uEDA2";
+        public const string Clock = "\uE917";
+        public const string Directory = "\uE825";
+    }
+
     private static string GlyphOf(string report) => ReportArea.ById(report)?.Glyph ?? "";
 
     private static DeepLink L(string section) => DeepLink.For(section);
@@ -285,7 +294,8 @@ public static class InsightWidgets
     /// </summary>
     public static readonly IReadOnlyList<InsightCard> All =
     [
-        new("installHealth", "Installs", "Munki and Cimian across the fleet", Accent.Emerald, GlyphOf("installs"), L("installs"),
+        // Each card wears its module's glyph and colour, unless two cards would match.
+        new("installHealth", "Installs", "Munki and Cimian across the fleet", Accent.Emerald, Glyphs.Download, L("installs"),
             Placement: InsightPlacement.StatusColumn, Hero: true),
         // The Management report's own shield, in its yellow, as the nav and the report draw it.
         new("managementToolLogs", "Management Tools Logs", "Errors in the management tools' own logs", Accent.Yellow, GlyphOf("management"),
@@ -293,7 +303,7 @@ public static class InsightWidgets
         new("checkinGaps", "Check-in Gaps", "Turned away, and gone quiet", Accent.Red, "\uE7BA",
             DeepLink.For("events", "failures", ("hours", "24")), Placement: InsightPlacement.StatusColumn),
 
-        new("directoryServices", "Directory Services", "How devices are joined to a directory", Accent.Indigo, GlyphOf("identity"), L("identity"), InsightShape.Donut),
+        new("directoryServices", "Directory Services", "How devices are joined to a directory", Accent.Purple, Glyphs.Directory, L("identity"), InsightShape.Donut),
         new("userAccounts", "User Accounts", "Sign-in method and administrator accounts", Accent.Indigo, GlyphOf("identity"), L("identity"), InsightShape.Donut),
         new("connectivityProblems", "Connectivity Problems", "Weak Wi-Fi, poor networks and VPN", Accent.Teal, GlyphOf("network"), L("network")),
         new("protectionGaps", "Protection Gaps", "Devices missing a protection", Accent.Red, GlyphOf("security"), L("security"), InsightShape.Bars),
@@ -301,14 +311,14 @@ public static class InsightWidgets
 
         new("updateDebt", "Update Debt", "Behind on patches, and updates waiting", Accent.Purple, GlyphOf("system"), L("system"), InsightShape.Donut,
             Placement: InsightPlacement.ColumnB),
-        new("storage", "Storage", "Free space and capacity", Accent.Orange, GlyphOf("hardware"), L("hardware"), InsightShape.Bars,
+        new("storage", "Storage", "Free space and capacity", Accent.Orange, Glyphs.HardDrive, L("hardware"), InsightShape.Bars,
             Placement: InsightPlacement.ColumnB),
         new(InsightCards.AppUsage, "App Usage", "The most-used apps", Accent.Blue, GlyphOf("applications"),
             DeepLink.For("applications", null, ("type", "usage"), ("period", "30")), InsightShape.Bars,
             Placement: InsightPlacement.ColumnB),
         new("softwareRisk", "Software Risk", "Vulnerabilities and items behind", Accent.Red, GlyphOf("security"), L("security"),
             Placement: InsightPlacement.ColumnB),
-        new("rebootDebt", "Uptime Overview", "How long devices have run since their last restart", Accent.Orange, GlyphOf("system"), L("system"), InsightShape.Bars,
+        new("rebootDebt", "Uptime Overview", "How long devices have run since their last restart", Accent.Orange, Glyphs.Clock, L("system"), InsightShape.Bars,
             Placement: InsightPlacement.ColumnB),
     ];
 

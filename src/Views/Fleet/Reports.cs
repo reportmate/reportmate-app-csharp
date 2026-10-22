@@ -150,18 +150,12 @@ public sealed class ReportPage : FleetPage
             : capped
                 ? $"first {rows.Count:N0} {spec.RowNoun}, from {deviceCount:N0} devices"
                 : $"{rows.Count:N0} {spec.RowNoun}");
-        // Management has a second view, the management tools' logs, beside Enrollment.
-        UIElement right = WithActiveFilters(count);
-        if (_area.Id == "management")
-        {
-            var both = new StackPanel { Orientation = Orientation.Horizontal };
-            var views = ManagementLogsPage.ViewSwitch(this, logs: false);
-            if (views is FrameworkElement fe) fe.Margin = new Thickness(0, 0, 16, 0);
-            both.Children.Add(views);
-            both.Children.Add(right);
-            right = both;
-        }
-        page.Children.Add(Ui.TabHeader(_area.Title, _area.Subtitle, "", _area.Accent, right));
+        // Management's title is a switch between its two views: the device management
+        // service, and the management tools' own logs.
+        var right = WithActiveFilters(count);
+        page.Children.Add(_area.Id == "management"
+            ? ManagementLogsPage.Header(this, logs: false, "", right)
+            : Ui.TabHeader(_area.Title, _area.Subtitle, "", _area.Accent, right));
 
         if (rows.Count == 0)
         {

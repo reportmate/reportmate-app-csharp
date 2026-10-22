@@ -433,7 +433,7 @@ public static class InsightCards
             ("platform", string.IsNullOrWhiteSpace(platform) ? null : platform), ("message", message));
 
     /// <summary>
-    /// The server's own link when it already points into the Tools Logs report, as
+    /// The server's own link when it already points into the Management Logs view, as
     /// the revision-6 API's do; an earlier one pointed at the device list.
     /// </summary>
     private static DeepLink? ReportLink(JsonElement node) =>
