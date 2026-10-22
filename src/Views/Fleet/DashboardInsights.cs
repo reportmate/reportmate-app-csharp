@@ -419,6 +419,7 @@ public static class InsightWidgets
     {
         var panel = new StackPanel();
         if (part.Heading is { } heading) panel.Children.Add(Eyebrow(heading, first ? 0 : 14));
+        if (part.Tabular && part.Columns is { Count: 3 } titles) panel.Children.Add(TableHeader(titles, first));
         var max = Math.Max(1, part.Items.Count == 0 ? 1 : part.Items.Max(i => i.Count));
         foreach (var item in part.Items)
             panel.Children.Add(part.Tabular
@@ -536,23 +537,49 @@ public static class InsightWidgets
         return item.Link is { } link ? Row(row, link) : row;
     }
 
+    // The tabular rows' columns: the name takes the rest; the bar, value and detail are fixed.
+    private const double TableBar = 60, TableValue = 64, TableDetail = 56;
+
+    private static Grid TableGrid()
+    {
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 60 });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(TableBar) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(TableValue) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(TableDetail) });
+        return row;
+    }
+
+    /// <summary>The header row over a tabular list: name, then value and detail over their columns.</summary>
+    private static UIElement TableHeader(IReadOnlyList<string> titles, bool first)
+    {
+        var row = TableGrid();
+        row.Margin = new Thickness(6, first ? 0 : 14, 6, 4);
+        void Title(string text, int column, bool right)
+        {
+            var t = Ui.Eyebrow(text.ToUpperInvariant());
+            if (right) t.TextAlignment = TextAlignment.Right;
+            Grid.SetColumn(t, column);
+            row.Children.Add(t);
+        }
+        Title(titles[0], 0, false);
+        Title(titles[1], 2, true);
+        Title(titles[2], 3, true);
+        return row;
+    }
+
     /// <summary>
-    /// A row on a strict grid: name (flexible, truncated) | bar (fixed) | value
-    /// (right-aligned, fixed) | detail (right-aligned, fixed), so the columns line up
-    /// down the list -- App Usage's apps, hours and devices.
+    /// A row on a strict grid: name (the rest, truncated) | 60 px bar | value | detail,
+    /// the value and detail right-aligned, so the columns line up down the list --
+    /// App Usage's apps, hours and devices.
     /// </summary>
     private static UIElement TableRow(Metric item, double fraction)
     {
-        var row = new Grid();
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 80 });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+        var row = TableGrid();
         var name = Ui.Text(item.Label);
         name.FontSize = 13;
         name.TextTrimming = TextTrimming.CharacterEllipsis;
-        name.ToolTip = item.Label;
-        name.Margin = new Thickness(0, 0, 10, 0);
+        name.Margin = new Thickness(0, 0, 8, 0);
         name.VerticalAlignment = VerticalAlignment.Center;
         row.Children.Add(name);
         var track = Track(8, fraction, Ui.Brush("IconBlueForeground"));
@@ -570,7 +597,8 @@ public static class InsightWidgets
         detail.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(detail, 3);
         row.Children.Add(detail);
-        return item.Link is { } link ? Row(row, link) : row;
+        row.ToolTip = item.Tip ?? item.Label;
+        return item.Link is { } link ? Row(row, link, item.Tip) : row;
     }
 
     /// <summary>A large number over its caption, linked when the server gave it a link.</summary>

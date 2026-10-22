@@ -248,13 +248,26 @@ public class InsightCardsTests
         Assert.Null(InsightCards.Build("managementToolErrors", Card("managementToolLogs")).Error);
     }
 
+    [Theory]
+    [InlineData(950.4, "950 h")]
+    [InlineData(1200, "1.2k h")]
+    [InlineData(3000, "3k h")]
+    [InlineData(12_400, "12k h")]
+    [InlineData(328_025, "328k h")]
+    [InlineData(1_240_000, "1.2M h")]
+    public void HoursAreCompactedAsTheWebDoes(double hours, string expected) =>
+        Assert.Equal(expected, InsightCards.CompactHours(hours));
+
     [Fact]
     public void AppUsageListsTheTopAppsAndItsFilters()
     {
         var view = InsightCards.Build("appUsage", AppUsage);
         Assert.True(view.Parts.OfType<BarsPart>().Single().Tabular);
         var apps = view.Parts.OfType<BarsPart>().Single().Items;
-        Assert.Equal("40 devices", apps[0].Detail);
+        Assert.Equal("40", apps[0].Detail);
+        Assert.Equal("901 h", apps[0].Shown);
+        Assert.Contains("Adobe Photoshop 2026", apps[0].Tip);
+        Assert.Equal(["App", "Hours", "Devices"], view.Parts.OfType<BarsPart>().Single().Columns);
         Assert.Equal(["Adobe Photoshop 2026", "Word"], apps.Select(a => a.Label));
         var link = apps[0].Link!;
         Assert.Equal(("applications", "usage/Adobe Photoshop 2026", "Shared"), (link.Section, link.Argument, link["usages"]));

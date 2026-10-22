@@ -14,6 +14,7 @@ public enum Severity { Neutral, Good, Warning, Bad, Info }
 /// <param name="Value">The text shown for the figure, when it is not just the count.</param>
 /// <param name="Fraction">A bar's length as a share, when it is not count over the longest bar.</param>
 /// <param name="Platform">A platform whose logo goes before the label.</param>
+/// <param name="Tip">The item's tooltip, when it should say more than the row does.</param>
 /// <param name="Swatch">
 /// A fixed colour (#rrggbb) for this item's slice or bar, where the report it opens
 /// has its own colour for the same category and the card should match it.
@@ -21,7 +22,7 @@ public enum Severity { Neutral, Good, Warning, Bad, Info }
 public sealed record Metric(
     string Label, double Count, DeepLink? Link,
     Severity Severity = Severity.Neutral, string? Value = null, string? Detail = null,
-    double? Fraction = null, string? Platform = null, string? Swatch = null)
+    double? Fraction = null, string? Platform = null, string? Swatch = null, string? Tip = null)
 {
     public string Shown => Value ?? Count.ToString("N0", CultureInfo.CurrentCulture);
 }
@@ -37,7 +38,9 @@ public sealed record FiguresPart(IReadOnlyList<Metric> Items) : CardPart;
 /// Lay the rows out as fixed columns: name, bar, the value right-aligned, then the
 /// detail right-aligned, so every column lines up down the list.
 /// </param>
-public sealed record BarsPart(string? Heading, IReadOnlyList<Metric> Items, bool Tabular = false) : CardPart;
+/// <param name="Columns">A tabular list's header row: the name, value and detail columns' titles.</param>
+public sealed record BarsPart(string? Heading, IReadOnlyList<Metric> Items, bool Tabular = false,
+    IReadOnlyList<string>? Columns = null) : CardPart;
 
 /// <summary>Small "n label" chips.</summary>
 public sealed record ChipsPart(IReadOnlyList<Metric> Items) : CardPart;
@@ -468,17 +471,41 @@ public static class InsightCards
         return new CardView(parts);
     }
 
-    /// <summary>App Usage: the ten most-used apps within the chosen usages and catalogs.</summary>
+    /// <summary>
+    /// Hours in a narrow column: 950 h, 1.2k h, 12k h, 328k h, 1.2M h -- the web's
+    /// compactHours, so the two apps print the same figure.
+    /// </summary>
+    public static string CompactHours(double hours)
+    {
+        var n = Math.Max(0, hours);
+        static string Trim(double v) => v.ToString("0.0", CultureInfo.InvariantCulture).Replace(".0", "");
+        if (n < 1000) return $"{Math.Round(n, MidpointRounding.AwayFromZero):0} h";
+        if (n < 10_000) return $"{Trim(n / 1000)}k h";
+        if (n < 999_500) return $"{Math.Round(n / 1000, MidpointRounding.AwayFromZero):0}k h";
+        return $"{Trim(n / 1_000_000)}M h";
+    }
+
+    /// <summary>
+    /// App Usage: the ten most-used apps within the chosen usages and catalogs, on
+    /// the web's grid -- name | 60 px bar | compact hours | devices -- under one
+    /// header row, with the full name and exact hours on hover.
+    /// </summary>
     private static CardView AppUsageCard(JsonElement c)
     {
         var apps = Array(c, "apps")
-            .Select(a => new Metric(Insights.Str(a, "name"), Insights.Number(a, "totalHours") ?? 0, ToDeepLink(Insights.Prop(a, "link")),
-                Severity.Info, Value: $"{Insights.Number(a, "totalHours") ?? 0:N0} h",
-                Detail: $"{(Insights.Int(a, "activeDevices") is var d and > 0 ? d : Insights.Int(a, "devices")):N0} devices"))
+            .Select(a =>
+            {
+                var name = Insights.Str(a, "name");
+                var hours = Insights.Number(a, "totalHours") ?? 0;
+                var devices = Insights.Int(a, "activeDevices") is var d and > 0 ? d : Insights.Int(a, "devices");
+                return new Metric(name, hours, ToDeepLink(Insights.Prop(a, "link")), Severity.Info,
+                    Value: CompactHours(hours), Detail: devices.ToString("N0", CultureInfo.CurrentCulture),
+                    Tip: $"{name} · {hours.ToString("N1", CultureInfo.CurrentCulture)} h on {devices:N0} devices");
+            })
             .ToList();
         var parts = new List<CardPart>();
         parts.Add(apps.Count > 0
-            ? new BarsPart("MOST USED", apps, Tabular: true)
+            ? new BarsPart(null, apps, Tabular: true, Columns: ["App", "Hours", "Devices"])
             : new NotePart("No application usage matches these filters."));
         parts.Add(new NotePart($"Over the last {Insights.Int(c, "days")} days."));
         return new CardView(parts);
