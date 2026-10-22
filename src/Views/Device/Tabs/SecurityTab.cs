@@ -417,16 +417,15 @@ public sealed class SecurityTab : DeviceTab
     private UIElement CertificatesCard(SecurityData sec, Action rerender)
     {
         // Status is measured against now: the stored status was frozen when the
-        // certificate was collected. The client model carries no class yet, so the
-        // collector's own OS-root flag is the only signal for a trust-store copy and
-        // everything else reads as actionable, as the API treats unstamped rows.
+        // certificate was collected. The class is the one the API stamped; an
+        // unstamped certificate reads as actionable, as every app treats it.
         var now = DateTime.UtcNow;
         var certs = (sec.Certificates ?? []).Select(c =>
         {
             var (state, days) = CertificateView.Live(c.NotAfter, now, c.Status, c.IsExpired, c.IsExpiringSoon, c.DaysUntilExpiry);
             var expired = state == CertificateStatus.Expired;
             var expiring = state == CertificateStatus.ExpiringSoon;
-            var cls = CertificateView.Classify(null, c.IsOsTrustedRoot);
+            var cls = CertificateView.Classify(null);
             var store = c.StoreLocation is "LocalMachine" or "System" ? "System" : "User";
             var name = CertificateView.DisplayName(null, c.CommonName, c.Subject);
             return new CertRow(name.Length > 0 ? name : "—", CertificateView.IssuerName(null, c.Issuer), c.Thumbprint ?? "",

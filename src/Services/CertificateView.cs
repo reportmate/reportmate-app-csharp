@@ -38,18 +38,15 @@ public static class CertificateView
     public const string ShowSystemManagedLabel = "Show system-managed";
 
     /// <summary>
-    /// The class to show. A stamped class wins. An unstamped certificate is
-    /// actionable, as the API treats it, except one the client itself marked as an
-    /// OS-trusted root: that flag is the collector's own, and calling every bundled
-    /// root actionable would bury the certificates someone has to renew.
+    /// The class to show: the one the API stamped. An unstamped certificate is
+    /// actionable, as the API, the web and the Mac app all treat it.
     /// </summary>
-    public static CertificateClass Classify(string? stampedClass, bool isOsTrustedRoot = false) =>
+    public static CertificateClass Classify(string? stampedClass) =>
         stampedClass?.Trim().ToLowerInvariant() switch
         {
-            "actionable" => CertificateClass.Actionable,
             "system-managed" => CertificateClass.SystemManaged,
             "trust-store" => CertificateClass.TrustStore,
-            _ => isOsTrustedRoot ? CertificateClass.TrustStore : CertificateClass.Actionable,
+            _ => CertificateClass.Actionable,
         };
 
     /// <summary>The badge text, the same words the web and Mac apps use.</summary>

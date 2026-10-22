@@ -25,14 +25,6 @@ public class CertificateViewTests
     public void Unstamped_IsActionable() =>
         Assert.Equal(CertificateClass.Actionable, CertificateView.Classify(null));
 
-    [Fact]
-    public void Unstamped_OsTrustedRoot_IsTrustStore() =>
-        Assert.Equal(CertificateClass.TrustStore, CertificateView.Classify(null, isOsTrustedRoot: true));
-
-    [Fact]
-    public void StampedClass_WinsOverTheRootFlag() =>
-        Assert.Equal(CertificateClass.Actionable, CertificateView.Classify("actionable", isOsTrustedRoot: true));
-
     [Theory]
     [InlineData(CertificateClass.Actionable, "Actionable")]
     [InlineData(CertificateClass.SystemManaged, "System-managed")]
