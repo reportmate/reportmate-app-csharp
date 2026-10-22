@@ -102,69 +102,71 @@ public sealed class DashboardInsightsModel
         }
 
         // Two at a time: each bulk report takes the API ten seconds or more, and
-        // four at once had the gateway answer 503 for the last of them.
-        var queue = new Queue<string>(Sources);
-        var running = new List<Task<(string Source, string? Error)>>();
-        while (running.Count < 2 && queue.Count > 0) running.Add(FetchAsync(queue.Dequeue()));
-
-        while (running.Count > 0)
-        {
-            var done = await Task.WhenAny(running);
-            running.Remove(done);
-            if (queue.Count > 0) running.Add(FetchAsync(queue.Dequeue()));
-
-            var (source, error) = await done;
-            // Data from the last good read stays: a failed refresh should not blank
-            // a card that was showing something true five minutes ago.
-            if (error is null) _errors.Remove(source);
-            else _errors[source] = error;
-            _loading.Remove(source);
-            Changed?.Invoke(source);
-        }
+        // four at once had the gateway answer 503 for the last of them. Each read has
+        // a deadline, so one the API never answers frees its slot and its card says
+        // so, rather than spinning while the reads behind it wait.
+        await ReportQueue.RunAllAsync(Sources, 2, FetchOnceAsync, Finish, Timeout);
         _loadedAt = DateTime.UtcNow;
     }
 
-    /// <summary>One read, retried once after a short pause on a 5xx or a dropped connection.</summary>
-    private async Task<(string, string?)> FetchAsync(string source)
+    /// <summary>
+    /// Forty-five seconds a report. The managed items are two dozen pages that take
+    /// half a minute between them on a good day, so they get longer.
+    /// </summary>
+    private static TimeSpan Timeout(string source) =>
+        source == "installs" ? TimeSpan.FromMinutes(3) : ReportQueue.DefaultTimeout;
+
+    /// <summary>Read one source again, for a card's Retry button.</summary>
+    public async Task RetryAsync(string source)
     {
-        for (var attempt = 0; ; attempt++)
-        {
-            var (ok, transient, detail) = await FetchOnceAsync(source);
-            if (ok) return (source, null);
-            if (!transient || attempt > 0) return (source, detail ?? "This could not be loaded.");
-            await Task.Delay(TimeSpan.FromSeconds(3));
-        }
+        if (!_loading.Add(source)) return;
+        _errors.Remove(source);
+        Changed?.Invoke(source);
+        await ReportQueue.RunAllAsync([source], 1, FetchOnceAsync, Finish, Timeout);
     }
 
-    private async Task<(bool Ok, bool Transient, string? Detail)> FetchOnceAsync(string source)
+    private void Finish(string source, FetchOutcome outcome)
+    {
+        // Data from the last good read stays: a failed refresh should not blank a
+        // card that was showing something true five minutes ago.
+        if (outcome.Ok) _errors.Remove(source);
+        else _errors[source] = outcome.Error!;
+        _loading.Remove(source);
+        Changed?.Invoke(source);
+    }
+
+    private static FetchOutcome Outcome<T>(FleetApiClient.FleetResult<T> r) =>
+        r.Ok ? FetchOutcome.Success : new FetchOutcome(r.Detail ?? "This could not be loaded.", r.Transient);
+
+    private async Task<FetchOutcome> FetchOnceAsync(string source, CancellationToken ct)
     {
         var api = FleetApiClient.Instance;
         if (Modules.Contains(source))
         {
-            var r = await api.GetModuleAsync(source);
+            var r = await api.GetModuleAsync(source, ct: ct);
             if (r.Ok) _rows[source] = r.Data!;
-            return (r.Ok, r.Transient, r.Detail);
+            return Outcome(r);
         }
 
         switch (source)
         {
             case "certificates":
             {
-                var r = await api.GetTypedAsync<List<JsonElement>>("/api/v1/security/certificates?status=expiring&limit=10000");
+                var r = await api.GetTypedAsync<List<JsonElement>>("/api/v1/security/certificates?status=expiring&limit=10000", ct);
                 if (r.Ok) _rows[source] = r.Data!;
-                return (r.Ok, r.Transient, r.Detail);
+                return Outcome(r);
             }
             case "installs":
             {
                 // Followed page by page, as the installs report does: one request
                 // returns the first fifty devices' items and nothing else.
-                var r = await api.GetAllPagesAsync("installs", 5000);
+                var r = await api.GetAllPagesAsync("installs", 5000, ct: ct);
                 if (r.Ok)
                 {
                     var rows = r.Data!;
-                    _installs = await Task.Run(() => rows.Select(Insights.ToInstallItem).OfType<Insights.InstallItem>().ToList());
+                    _installs = await Task.Run(() => rows.Select(Insights.ToInstallItem).OfType<Insights.InstallItem>().ToList(), ct);
                 }
-                return (r.Ok, r.Transient, r.Detail);
+                return Outcome(r);
             }
             default:
             {
@@ -174,11 +176,11 @@ public sealed class DashboardInsightsModel
                     "failures" => "/api/v1/events/failures?hours=24&limit=1",
                     _ => "/api/v1/applications/usage?days=30",
                 };
-                var r = await api.GetRawAsync(path);
+                var r = await api.GetRawAsync(path, ct);
                 if (r.Ok)
                     using (var doc = r.Data!)
                         _documents[source] = doc.RootElement.Clone();
-                return (r.Ok, r.Transient, r.Detail);
+                return Outcome(r);
             }
         }
     }
@@ -240,8 +242,8 @@ public static class InsightWidgets
         if (card.Primary is { } primary && !model.Has(primary))
         {
             var error = model.Error(primary);
-            body = error is not null ? Message(error)
-                : model.IsLoading(primary) ? Loading()
+            body = model.IsLoading(primary) ? Loading()
+                : error is not null ? Failed(error, primary)
                 : Message("No data");
         }
         else
@@ -412,8 +414,9 @@ public static class InsightWidgets
             chips.Margin = new Thickness(0, 10, 0, 0);
             body.Children.Add(chips);
         }
-        else if (m.Error("installs-filters") is null && m.IsLoading("installs-filters"))
-            body.Children.Add(Loading());
+        else if (m.IsLoading("installs-filters")) body.Children.Add(Loading());
+        else if (m.Error("installs-filters") is { } staleError)
+            body.Children.Add(Failed($"Stale agents could not be loaded. {staleError}", "installs-filters"));
         return body;
     }
 
@@ -851,7 +854,21 @@ public static class InsightWidgets
 
     /// <summary>An optional read's state where its part of a card would be.</summary>
     private static UIElement Pending(DashboardInsightsModel m, string source, string failed) =>
-        m.IsLoading(source) && m.Error(source) is null ? Loading() : Message(failed);
+        m.IsLoading(source) ? Loading()
+        : m.Error(source) is { } error ? Failed($"{failed} {error}", source)
+        : Message(failed);
+
+    /// <summary>The error, and a Retry that reads just this source again.</summary>
+    private static UIElement Failed(string error, string source)
+    {
+        var panel = new StackPanel();
+        panel.Children.Add(Message(error));
+        var retry = Ui.IconButton("\uE72C", "Retry", (_, _) => _ = DashboardInsightsModel.Shared.RetryAsync(source));
+        retry.HorizontalAlignment = HorizontalAlignment.Left;
+        retry.Margin = new Thickness(0, 8, 0, 0);
+        panel.Children.Add(retry);
+        return panel;
+    }
 
     private static UIElement Message(string text)
     {
