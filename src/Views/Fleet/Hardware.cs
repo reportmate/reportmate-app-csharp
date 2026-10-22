@@ -84,11 +84,19 @@ public static class Hardware
     /// device with 4 TB of headroom, and the question this answers is whether the
     /// machine is about to run out.
     /// </remarks>
-    public static string? Storage(JsonElement row)
+    public static string? Storage(JsonElement row) =>
+        StorageBytes(row) is { Total: > 0 } s ? $"{Format.Bytes(s.Free)} free of {Format.Bytes(s.Total)}" : null;
+
+    /// <summary>
+    /// Internal capacity and free space in bytes, summed across the device's
+    /// internal disks; zero total when it reports none. The dashboard's low-storage
+    /// count and the report's storage column both read this, so they agree.
+    /// </summary>
+    public static (long Total, long Free) StorageBytes(JsonElement row)
     {
         if (row.ValueKind != JsonValueKind.Object
             || !row.TryGetProperty("storage", out var disks)
-            || disks.ValueKind != JsonValueKind.Array) return null;
+            || disks.ValueKind != JsonValueKind.Array) return (0, 0);
 
         long total = 0, free = 0;
         foreach (var disk in disks.EnumerateArray())
@@ -104,8 +112,47 @@ public static class Hardware
             total += capacity;
             free += available;
         }
+        return (total, free);
+    }
 
-        return total <= 0 ? null : $"{Format.Bytes(free)} free of {Format.Bytes(total)}";
+    /// <summary>
+    /// Physical memory in bytes, or zero. Windows calls it memory.totalPhysical and
+    /// a Mac memory.physical_memory, so reading one name covers half the fleet.
+    /// </summary>
+    public static double MemoryBytes(JsonElement row)
+    {
+        if (row.ValueKind != JsonValueKind.Object
+            || !row.TryGetProperty("memory", out var memory)) return 0;
+        if (memory.ValueKind == JsonValueKind.Number) return memory.GetDouble();
+        if (memory.ValueKind != JsonValueKind.Object) return 0;
+        foreach (var name in new[] { "totalPhysical", "physical_memory", "physicalMemory" })
+        {
+            if (!memory.TryGetProperty(name, out var v)) continue;
+            if (v.ValueKind == JsonValueKind.Number) return v.GetDouble();
+            if (v.ValueKind == JsonValueKind.String
+                && double.TryParse(v.GetString(), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var d)) return d;
+        }
+        return 0;
+    }
+
+    private static readonly string[] DesktopWords =
+        ["desktop", "optiplex", "precision", "workstation", "tower", "sff", "imac", "mac pro", "mac studio"];
+
+    private static readonly string[] LaptopWords =
+        ["laptop", "book", "thinkpad", "macbook", "pavilion", "inspiron", "latitude", "elitebook", "probook", "yoga", "ideapad", "surface laptop"];
+
+    /// <summary>
+    /// Whether the model names a laptop. Desktop words are tested first, as the web
+    /// and the Mac app do, because "Precision" names a tower line as well as a laptop one, and the Mac
+    /// app counts it as a desktop.
+    /// </summary>
+    public static bool IsLaptop(JsonElement row)
+    {
+        var model = Text(row, "model");
+        if (model.Length == 0) return false;
+        if (Mentions(model, DesktopWords)) return false;
+        return Mentions(model, LaptopWords);
     }
 
     private static long Bytes(JsonElement node, string name) =>

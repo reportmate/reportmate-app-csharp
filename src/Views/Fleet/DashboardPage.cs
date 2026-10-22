@@ -7,9 +7,11 @@ using ReportMate.App.Views.Shared;
 namespace ReportMate.App.Views.Fleet;
 
 /// <summary>
-/// The web app's home dashboard. Layout follows it: a narrow left column of fleet
-/// status and counters, a wide right column of recent activity and the platform and
-/// OS breakdowns. One consolidated API call backs every widget, as on the web.
+/// The web app's home dashboard: fleet status and counters, the four insight cards,
+/// and recent activity with the platform and OS breakdowns. One consolidated API
+/// call backs the status and activity widgets, as on the web; the insight cards
+/// read the bulk module reports after it. <see cref="DashboardLayout"/> decides how
+/// many columns the window has room for.
 /// </summary>
 public sealed class DashboardPage : FleetPage
 {
@@ -31,24 +33,69 @@ public sealed class DashboardPage : FleetPage
         page.Children.Add(Ui.TabHeader("Dashboard", "Fleet status at a glance", "", Accent.Blue,
             Ui.Caption($"{devices.Count:N0} devices reporting")));
 
-        var left = new StackPanel();
-        Stack(left, StatusWidget(devices));
-        Stack(left, Ui.Columns(2, 14,
+        var status = new StackPanel();
+        Stack(status, StatusWidget(devices));
+        Stack(status, Ui.Columns(2, 14,
             CounterCard("Errors", Errors(data.InstallStats), Tone.Error),
             CounterCard("Warnings", Warnings(data.InstallStats), Tone.Warning)));
-        Stack(left, NewClientsWidget(devices));
+        Stack(status, NewClientsWidget(devices));
 
-        var right = new StackPanel();
-        Stack(right, RecentEventsWidget(data.Events));
-        Stack(right, PlatformDistributionWidget(devices));
-        Stack(right, Ui.Columns(2, 14,
+        var activity = new StackPanel();
+        Stack(activity, RecentEventsWidget(data.Events));
+        Stack(activity, PlatformDistributionWidget(devices));
+        Stack(activity, Ui.Columns(2, 14,
             OsVersionWidget(devices, "Windows"),
             OsVersionWidget(devices, "macOS")));
 
-        var columns = Ui.Columns([3, 7], 18, left, right);
-        columns.Margin = new Thickness(0, 20, 0, 0);
-        page.Children.Add(columns);
+        // The insight cards draw from the shared report model and redraw in place as
+        // each report lands, so the page is on screen before the slow reads finish.
+        var insights = Ui.CardGrid(340, 14);
+        insights.MaxColumns = 2;
+        var hosts = DashboardInsightsModel.Reports.ToDictionary(r => r, r =>
+        {
+            var host = new ContentControl
+            {
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                VerticalContentAlignment = VerticalAlignment.Stretch,
+                Content = InsightWidgets.Build(r),
+            };
+            insights.Children.Add(host);
+            return host;
+        });
+        WatchInsights(hosts);
+
+        var layout = new DashboardLayout(status, insights, activity) { Margin = new Thickness(0, 20, 0, 0) };
+        page.Children.Add(layout);
+        _ = DashboardInsightsModel.Shared.LoadAsync();
         return page;
+    }
+
+    private Action<string>? _insightsHandler;
+
+    /// <summary>
+    /// Redraw a card when its report changes, for as long as this page is shown.
+    /// The model outlives the page, so the handler has to come off when the page
+    /// goes or every dashboard ever built would keep redrawing cards nobody sees.
+    /// </summary>
+    private void WatchInsights(Dictionary<string, ContentControl> hosts)
+    {
+        var model = DashboardInsightsModel.Shared;
+        if (_insightsHandler is not null) model.Changed -= _insightsHandler;
+        _insightsHandler = report =>
+        {
+            if (hosts.TryGetValue(report, out var host)) host.Content = InsightWidgets.Build(report);
+        };
+        model.Changed += _insightsHandler;
+    }
+
+    public DashboardPage()
+    {
+        Unloaded += (_, _) =>
+        {
+            if (_insightsHandler is null) return;
+            DashboardInsightsModel.Shared.Changed -= _insightsHandler;
+            _insightsHandler = null;
+        };
     }
 
     private static void Stack(Panel host, UIElement child)
@@ -272,5 +319,110 @@ public sealed class DashboardPage : FleetPage
         if (delta < TimeSpan.FromHours(1)) return $"{(int)delta.TotalMinutes}m ago";
         if (delta < TimeSpan.FromDays(1)) return $"{(int)delta.TotalHours}h ago";
         return $"{(int)delta.TotalDays}d ago";
+    }
+}
+
+/// <summary>
+/// The dashboard's three groups -- status, insights, activity -- laid out for the
+/// width the window actually has, and re-laid as it is resized.
+/// </summary>
+/// <remarks>
+/// Wide: three columns side by side, so a desktop-sized window shows everything
+/// without scrolling instead of a laptop-width column with margins. Medium: status
+/// and activity side by side, the insight cards below in two columns. Narrow: one
+/// column. Decided on the layout's own width rather than the window's, so a host
+/// that embeds the dashboard in part of a window gets the layout that fits it.
+/// </remarks>
+public sealed class DashboardLayout : Grid
+{
+    /// <summary>
+    /// The content width at which three columns fit, around 1500 px of window once
+    /// the page padding and scroll bar are taken off.
+    /// </summary>
+    public const double WideWidth = 1420;
+
+    /// <summary>Below this, status and activity are too cramped side by side.</summary>
+    public const double NarrowWidth = 860;
+
+    private const double Gap = 18;
+
+    private enum Mode { None, Narrow, Medium, Wide }
+
+    private readonly FrameworkElement _status;
+    private readonly Shared.UniformCardPanel _insights;
+    private readonly FrameworkElement _activity;
+    private Mode _mode = Mode.None;
+
+    public DashboardLayout(FrameworkElement status, Shared.UniformCardPanel insights, FrameworkElement activity)
+    {
+        _status = status;
+        _insights = insights;
+        _activity = activity;
+        Children.Add(status);
+        Children.Add(insights);
+        Children.Add(activity);
+        Apply(Mode.Medium);
+        SizeChanged += (_, e) => Apply(ModeFor(e.NewSize.Width));
+    }
+
+    private static Mode ModeFor(double width) =>
+        width >= WideWidth ? Mode.Wide : width >= NarrowWidth ? Mode.Medium : Mode.Narrow;
+
+    private void Apply(Mode mode)
+    {
+        if (mode == _mode) return;
+        _mode = mode;
+        ColumnDefinitions.Clear();
+        RowDefinitions.Clear();
+        foreach (var child in new[] { _status, (FrameworkElement)_insights, _activity })
+        {
+            SetRow(child, 0);
+            SetColumn(child, 0);
+            SetColumnSpan(child, 1);
+            child.Margin = new Thickness(0);
+        }
+
+        switch (mode)
+        {
+            case Mode.Wide:
+                AddColumns(3, 4, 5);
+                SetColumn(_insights, 2);
+                SetColumn(_activity, 4);
+                // One card per row: the column is the width of one card.
+                _insights.MaxColumns = 1;
+                break;
+
+            case Mode.Medium:
+                AddColumns(3, 7);
+                RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                SetColumn(_activity, 2);
+                SetRow(_insights, 1);
+                SetColumnSpan(_insights, 3);
+                _insights.Margin = new Thickness(0, Gap, 0, 0);
+                _insights.MaxColumns = 2;
+                break;
+
+            default:
+                RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                SetRow(_activity, 1);
+                SetRow(_insights, 2);
+                _activity.Margin = new Thickness(0, Gap, 0, 0);
+                _insights.Margin = new Thickness(0, Gap, 0, 0);
+                _insights.MaxColumns = 2;
+                break;
+        }
+        _insights.InvalidateMeasure();
+    }
+
+    private void AddColumns(params double[] weights)
+    {
+        for (var i = 0; i < weights.Length; i++)
+        {
+            if (i > 0) ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Gap) });
+            ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(weights[i], GridUnitType.Star) });
+        }
     }
 }

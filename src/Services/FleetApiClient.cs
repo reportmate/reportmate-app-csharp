@@ -42,9 +42,16 @@ public sealed class FleetApiClient
         Malformed,
     }
 
-    public sealed record FleetResult<T>(FleetStatus Status, T? Data, string? Detail)
+    /// <param name="HttpStatus">The response code when the API answered with an error, null otherwise.</param>
+    public sealed record FleetResult<T>(FleetStatus Status, T? Data, string? Detail, int? HttpStatus = null)
     {
         public bool Ok => Status == FleetStatus.Ok && Data is not null;
+
+        /// <summary>
+        /// Worth one more try: the API answered 5xx, or never answered at all. A 4xx
+        /// will say the same thing again, so it is not.
+        /// </summary>
+        public bool Transient => Status == FleetStatus.Unreachable && (HttpStatus is null || HttpStatus >= 500);
     }
 
     /// <summary>
@@ -169,7 +176,7 @@ public sealed class FleetApiClient
                 return new FleetResult<T>(FleetStatus.Forbidden, null,
                     "This device's API key is an ingest key and is not allowed to read fleet data.");
             if (!response.IsSuccessStatusCode)
-                return new FleetResult<T>(FleetStatus.Unreachable, null, $"The API returned {(int)response.StatusCode}.");
+                return new FleetResult<T>(FleetStatus.Unreachable, null, $"The API returned {(int)response.StatusCode}.", (int)response.StatusCode);
 
             await using var stream = await response.Content.ReadAsStreamAsync(ct);
             var data = await JsonSerializer.DeserializeAsync<T>(stream, JsonOptions, ct);
