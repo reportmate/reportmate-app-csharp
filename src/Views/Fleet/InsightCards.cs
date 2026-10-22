@@ -14,6 +14,10 @@ public enum Severity { Neutral, Good, Warning, Bad, Info }
 /// <param name="Value">The text shown for the figure, when it is not just the count.</param>
 /// <param name="Fraction">A bar's length as a share, when it is not count over the longest bar.</param>
 /// <param name="Platform">A platform whose logo goes before the label.</param>
+/// <param name="Children">
+/// Rows nested under this one, behind a collapsed expander: Domain Joined's trust,
+/// as the Identity report's widget nests it.
+/// </param>
 /// <param name="Tip">The item's tooltip, when it should say more than the row does.</param>
 /// <param name="Swatch">
 /// A fixed colour (#rrggbb) for this item's slice or bar, where the report it opens
@@ -22,7 +26,8 @@ public enum Severity { Neutral, Good, Warning, Bad, Info }
 public sealed record Metric(
     string Label, double Count, DeepLink? Link,
     Severity Severity = Severity.Neutral, string? Value = null, string? Detail = null,
-    double? Fraction = null, string? Platform = null, string? Swatch = null, string? Tip = null)
+    double? Fraction = null, string? Platform = null, string? Swatch = null, string? Tip = null,
+    IReadOnlyList<Metric>? Children = null)
 {
     public string Shown => Value ?? Count.ToString("N0", CultureInfo.CurrentCulture);
 }
@@ -211,7 +216,12 @@ public static class InsightCards
     {
         Parts = view.Parts.Select(part => part switch
         {
-            DonutPart d => d with { Slices = d.Slices.Where(m => m.Count > 0).ToList() },
+            DonutPart d => d with
+            {
+                Slices = d.Slices.Where(m => m.Count > 0)
+                    .Select(m => m.Children is null ? m : m with { Children = m.Children.Where(c => c.Count > 0).ToList() })
+                    .ToList(),
+            },
             BarsPart { Buckets: false } b => b with { Items = b.Items.Where(m => m.Count > 0).ToList() },
             _ => part,
         })
@@ -252,7 +262,8 @@ public static class InsightCards
         var parts = new List<CardPart>();
         parts.Add(gaps.Count == 0 || gaps.All(g => g.Count == 0)
             ? new NotePart("Every protection is on across these devices.")
-            : new BarsPart("GAPS, WORST FIRST", gaps));
+            // A fixed list: "Secure Boot off 0 of 4" is good news, so its zeros stay.
+            : new BarsPart("GAPS, WORST FIRST", gaps, Buckets: true));
         parts.Add(new ChipsPart(
         [
             Figure(c, "withThreats", "with active threats", Severity.Bad),
@@ -313,6 +324,8 @@ public static class InsightCards
         var hours = Insights.Int(c, "windowHours");
         var tools = Array(c, "tools")
             .Where(t => !IsMdmTool(t))
+            // A tool with only warnings still belongs; one with neither does not.
+            .Where(t => Insights.Int(t, "devicesWithErrors") > 0 || Insights.Int(t, "devicesWithWarnings") > 0)
             .Select(t =>
             {
                 var withErrors = Insights.Int(t, "devicesWithErrors");
@@ -327,7 +340,7 @@ public static class InsightCards
         // Per tool only: a device can log errors from several tools, so a fleet
         // total would count it more than once.
         var parts = new List<CardPart> { new NotePart($"In the last {hours} hours, from the tools' own logs.") };
-        if (tools.Count > 0) parts.Add(new BarsPart("DEVICES WITH ERRORS, BY TOOL", tools));
+        if (tools.Count > 0) parts.Add(new BarsPart("DEVICES WITH ERRORS, BY TOOL", tools, Buckets: true));
         else parts.Add(new NotePart("No management tool logged an error."));
 
         // Grouped again here, by tool and the message without its timestamp and level
@@ -526,12 +539,30 @@ public static class InsightCards
             "standard" => Severity.Neutral,
             _ => Severity.Warning,
         };
+        // Domain Joined's trust -- Trusted, Unconfirmed, Broken -- nests under its
+        // legend row, as the Identity report's widget nests it.
+        var trust = new[] { "trust", "domainTrust", "breakdown" }
+            .Select(name => Array(v, name).ToList())
+            .FirstOrDefault(list => list.Count > 0)
+            ?? Array(v, "segments").SelectMany(seg => new[] { "children", "breakdown", "trust" }.SelectMany(n => Array(seg, n))).ToList();
+        var trustRows = trust
+            .Select(t => new Metric(Insights.Str(t, "label"), Insights.Int(t, "count"), ToDeepLink(Insights.Prop(t, "link")),
+                Insights.Str(t, "label").ToLowerInvariant() switch
+                {
+                    "broken" => Severity.Bad,
+                    "unconfirmed" => Severity.Warning,
+                    _ => Severity.Good,
+                }, Swatch: DirectorySwatch(Insights.Str(t, "label"))))
+            .ToList();
+
         var segments = Array(v, "segments")
-            .Select(s =>
+            .Select(seg =>
             {
-                var key = Insights.Str(s, "key") is { Length: > 0 } k ? k : Insights.Str(s, "label");
-                return new Metric(Insights.Str(s, "label"), Insights.Int(s, "count"), ToDeepLink(Insights.Prop(s, "link")),
-                    Tone(key), Swatch: DirectorySwatch(key) ?? DirectorySwatch(Insights.Str(s, "label")));
+                var key = Insights.Str(seg, "key") is { Length: > 0 } k ? k : Insights.Str(seg, "label");
+                var domain = DirectorySwatch(key) == DirectorySwatch("Domain Joined");
+                return new Metric(Insights.Str(seg, "label"), Insights.Int(seg, "count"), ToDeepLink(Insights.Prop(seg, "link")),
+                    Tone(key), Swatch: DirectorySwatch(key) ?? DirectorySwatch(Insights.Str(seg, "label")),
+                    Children: domain && trustRows.Count > 0 ? trustRows : null);
             })
             .ToList();
 
@@ -541,22 +572,6 @@ public static class InsightCards
         {
             new DonutPart(devices.ToString("N0", CultureInfo.CurrentCulture), "devices", segments),
         };
-
-        // Domain Joined's trust breakdown, under whichever name the card gives it.
-        var trust = new[] { "trust", "domainTrust", "breakdown" }
-            .Select(name => Array(v, name).ToList())
-            .FirstOrDefault(list => list.Count > 0)
-            ?? Array(v, "segments").SelectMany(s => new[] { "children", "breakdown", "trust" }.SelectMany(n => Array(s, n))).ToList();
-        if (trust.Count > 0)
-            parts.Add(new BarsPart("DOMAIN JOINED TRUST", trust
-                .Select(t => new Metric(Insights.Str(t, "label"), Insights.Int(t, "count"), ToDeepLink(Insights.Prop(t, "link")),
-                    Insights.Str(t, "label").ToLowerInvariant() switch
-                    {
-                        "broken" => Severity.Bad,
-                        "unconfirmed" => Severity.Warning,
-                        _ => Severity.Good,
-                    }, Swatch: DirectorySwatch(Insights.Str(t, "label"))))
-                .ToList()));
 
         parts.Add(new ChipsPart(
         [

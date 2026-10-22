@@ -70,10 +70,11 @@ public class InsightCardsTests
     public void ProtectionGapsKeepTheServersWorstFirstOrderAndShowTheShare()
     {
         var gaps = View("protectionGaps").Parts.OfType<BarsPart>().Single().Items;
-        // Secure Boot off is at zero, so the breakdown leaves it out.
-        Assert.Equal(["Firewall off", "Disk encryption off"], gaps.Select(g => g.Label));
+        // A fixed list: Secure Boot off at zero is good news, so it stays.
+        Assert.Equal(["Firewall off", "Disk encryption off", "Secure Boot off"], gaps.Select(g => g.Label));
         Assert.Equal("6 of 10", gaps[0].Shown);
         Assert.Equal(0.6, gaps[0].Fraction);
+        Assert.Equal(Severity.Neutral, gaps[2].Severity);
     }
 
     [Fact]
@@ -164,6 +165,19 @@ public class InsightCardsTests
     }
 
     [Fact]
+    public void ManagementToolsKeepAToolWithOnlyWarningsAndDropOneWithNeither()
+    {
+        var card = JsonDocument.Parse("""
+            {"windowHours":24,"tools":[
+               {"name":"Cimian","tool":"installs","devicesWithErrors":2,"devicesWithWarnings":1},
+               {"name":"StartSet","tool":"state","devicesWithErrors":0,"devicesWithWarnings":3},
+               {"name":"ReportMate","tool":"reports","devicesWithErrors":0,"devicesWithWarnings":0}]}
+            """).RootElement;
+        var tools = InsightCards.Build("managementToolLogs", card).Parts.OfType<BarsPart>().Single().Items;
+        Assert.Equal(["Cimian", "StartSet"], tools.Select(t => t.Label));
+    }
+
+    [Fact]
     public void StorageShowsBucketsCapacityAndTheFullest()
     {
         var view = View("storage");
@@ -208,10 +222,14 @@ public class InsightCardsTests
         var view = InsightCards.Build("directoryServices", card);
         var donut = view.Parts.OfType<DonutPart>().Single();
         Assert.Equal(["Cloud Joined", "Domain Joined", "Standard", "Unjoined"], donut.Slices.Select(s => s.Label));
-        var trust = view.Parts.OfType<BarsPart>().Single();
-        Assert.Equal(["Trusted", "Unconfirmed", "Broken"], trust.Items.Select(t => t.Label));
-        Assert.Equal("reportmate://identity?directory=Broken", trust.Items[2].Link!.ToAppUrl());
-        Assert.Equal(Severity.Bad, trust.Items[2].Severity);
+        // Trust nests under Domain Joined rather than drawing a list of its own.
+        Assert.Empty(view.Parts.OfType<BarsPart>());
+        Assert.Equal("reportmate://identity?directory=Domain%20Joined", donut.Slices[1].Link!.ToAppUrl());
+        var trust = donut.Slices[1].Children!;
+        Assert.Equal(["Trusted", "Unconfirmed", "Broken"], trust.Select(t => t.Label));
+        Assert.Equal("reportmate://identity?directory=Broken", trust[2].Link!.ToAppUrl());
+        Assert.Equal(Severity.Bad, trust[2].Severity);
+        Assert.All(donut.Slices.Where(s => s.Label != "Domain Joined"), s => Assert.Null(s.Children));
     }
 
     [Fact]

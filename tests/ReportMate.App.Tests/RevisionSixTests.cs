@@ -103,8 +103,15 @@ public class RevisionSixTests
                "breakdown":[{"label":"Trusted","count":3},{"label":"Unconfirmed","count":0},{"label":"Broken","count":0}]},
                {"key":"Unjoined","label":"Unjoined","count":0}]}
             """));
-        Assert.Equal(["Domain Joined"], directory.Parts.OfType<DonutPart>().Single().Slices.Select(s => s.Label));
-        Assert.Equal(["Trusted"], directory.Parts.OfType<BarsPart>().Single().Items.Select(i => i.Label));
+        var joined = directory.Parts.OfType<DonutPart>().Single().Slices.Single();
+        Assert.Equal("Domain Joined", joined.Label);
+        Assert.Equal(["Trusted"], joined.Children!.Select(i => i.Label));
+        Assert.Empty(directory.Parts.OfType<BarsPart>());
+
+        var gaps = InsightCards.Build("protectionGaps", Json("""
+            {"devices":4,"gaps":[{"key":"firewall","label":"Firewall off","count":1},{"key":"secureBoot","label":"Secure Boot off","count":0}]}
+            """));
+        Assert.Equal(2, gaps.Parts.OfType<BarsPart>().Single().Items.Count);
 
         var uptime = InsightCards.Build("rebootDebt", Json("""
             {"uptimeBuckets":[{"key":"lt1d","label":"< 1 day","count":0},{"key":"30d+","label":"30+ days","count":2}]}

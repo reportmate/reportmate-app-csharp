@@ -463,8 +463,8 @@ public static class InsightWidgets
             Severity.Info => Ui.Brush("IconBlueForeground"),
             _ => Ui.Brush("SubtleFillHoverBrush"),
         };
-        return DonutWithLegend(part.Slices.Select(s => (s.Label, (int)s.Count, Swatch(s) ?? Paint(s.Severity), s.Link)).ToList(),
-            part.Centre, part.CentreLabel);
+        return DonutWithLegend(part.Slices.Select(s => (s.Label, (int)s.Count, Swatch(s) ?? Paint(s.Severity), s.Link, s.Children)).ToList(),
+            part.Centre, part.CentreLabel, Paint);
     }
 
     /// <summary>An item's own colour, when the card fixes one to match its report.</summary>
@@ -664,7 +664,9 @@ public static class InsightWidgets
         return track;
     }
 
-    private static UIElement DonutWithLegend(IReadOnlyList<(string Label, int Count, Brush Brush, DeepLink? Link)> data, string centre, string centreLabel)
+    private static UIElement DonutWithLegend(
+        IReadOnlyList<(string Label, int Count, Brush Brush, DeepLink? Link, IReadOnlyList<Metric>? Children)> data,
+        string centre, string centreLabel, Func<Severity, Brush>? paint = null)
     {
         var total = data.Sum(d => d.Count);
         var donut = Ui.Donut(data.Select(d => ((double)d.Count, d.Brush, $"{d.Label}: {d.Count:N0}")), total,
@@ -675,46 +677,73 @@ public static class InsightWidgets
         donut.VerticalAlignment = VerticalAlignment.Center;
 
         var legend = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
-        foreach (var (label, count, brush, link) in data)
+        var nests = data.Any(d => d.Children is { Count: > 0 });
+        foreach (var (label, count, brush, link, children) in data)
         {
-            var row = new Grid();
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
-            var dot = new System.Windows.Shapes.Ellipse
+            var row = LegendRow(label, count, total, brush);
+            UIElement entry = link is { } l ? Linked(row, l) : Plain(row);
+            if (!nests)
             {
-                Width = 9, Height = 9, Fill = brush,
-                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0),
+                legend.Children.Add(entry);
+                continue;
+            }
+
+            // Nested rows sit behind a chevron that only expands and collapses; the
+            // label beside it still follows its own link. Collapsed to begin with, as
+            // the Identity report's widget starts.
+            var line = new Grid();
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            Grid.SetColumn(entry, 1);
+            line.Children.Add(entry);
+            legend.Children.Add(line);
+            if (children is not { Count: > 0 }) continue;
+
+            var nested = new StackPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(22, 0, 0, 4) };
+            foreach (var child in children)
+            {
+                var childRow = LegendRow(child.Label, (int)child.Count, count, Swatch(child) ?? paint?.Invoke(child.Severity) ?? brush);
+                nested.Children.Add(child.Link is { } cl ? Linked(childRow, cl) : Plain(childRow));
+            }
+            var chevron = new System.Windows.Controls.Primitives.ToggleButton
+            {
+                Content = Ui.Icon("\uE76C", 10, Ui.Brush("TextSecondaryBrush")),
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(0),
+                Width = 16,
+                Height = 16,
+                VerticalAlignment = VerticalAlignment.Center,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = $"Show {label}'s breakdown",
             };
-            row.Children.Add(dot);
-            var name = Ui.Text(label);
-            name.FontSize = 13;
-            name.TextTrimming = TextTrimming.CharacterEllipsis;
-            Grid.SetColumn(name, 1);
-            row.Children.Add(name);
-            var n = Ui.Text(count.ToString("N0"));
-            n.FontSize = 13;
-            n.FontWeight = FontWeights.Medium;
-            n.TextAlignment = TextAlignment.Right;
-            Grid.SetColumn(n, 2);
-            row.Children.Add(n);
-            var share = Ui.Caption(total == 0 ? "" : $"{(double)count / total:P0}");
-            share.TextAlignment = TextAlignment.Right;
-            Grid.SetColumn(share, 3);
-            row.Children.Add(share);
-            if (link is { } l)
+            System.Windows.Automation.AutomationProperties.SetName(chevron, $"{label} breakdown");
+            chevron.Checked += (_, _) =>
             {
-                var wrap = Linkable.Wrap(row, l);
-                wrap.Padding = new Thickness(6, 2, 6, 2);
-                wrap.Margin = new Thickness(0, 0, 0, 2);
-                legend.Children.Add(wrap);
-            }
-            else
+                nested.Visibility = Visibility.Visible;
+                chevron.Content = Ui.Icon("\uE70D", 10, Ui.Brush("TextSecondaryBrush"));
+            };
+            chevron.Unchecked += (_, _) =>
             {
-                row.Margin = new Thickness(6, 2, 6, 4);
-                legend.Children.Add(row);
-            }
+                nested.Visibility = Visibility.Collapsed;
+                chevron.Content = Ui.Icon("\uE76C", 10, Ui.Brush("TextSecondaryBrush"));
+            };
+            line.Children.Add(chevron);
+            legend.Children.Add(nested);
+        }
+
+        static UIElement Linked(Grid row, DeepLink link)
+        {
+            var wrap = Linkable.Wrap(row, link);
+            wrap.Padding = new Thickness(6, 2, 6, 2);
+            wrap.Margin = new Thickness(0, 0, 0, 2);
+            return wrap;
+        }
+
+        static UIElement Plain(Grid row)
+        {
+            row.Margin = new Thickness(6, 2, 6, 4);
+            return row;
         }
 
         var grid = new Grid { Margin = new Thickness(0, 0, 0, 10) };
@@ -724,6 +753,37 @@ public static class InsightWidgets
         Grid.SetColumn(legend, 1);
         grid.Children.Add(legend);
         return grid;
+    }
+
+    /// <summary>A legend row: dot, label, count and its share of <paramref name="total"/>.</summary>
+    private static Grid LegendRow(string label, int count, int total, Brush brush)
+    {
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
+        row.Children.Add(new System.Windows.Shapes.Ellipse
+        {
+            Width = 9, Height = 9, Fill = brush,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0),
+        });
+        var name = Ui.Text(label);
+        name.FontSize = 13;
+        name.TextTrimming = TextTrimming.CharacterEllipsis;
+        Grid.SetColumn(name, 1);
+        row.Children.Add(name);
+        var n = Ui.Text(count.ToString("N0"));
+        n.FontSize = 13;
+        n.FontWeight = FontWeights.Medium;
+        n.TextAlignment = TextAlignment.Right;
+        Grid.SetColumn(n, 2);
+        row.Children.Add(n);
+        var share = Ui.Caption(total == 0 ? "" : $"{(double)count / total:P0}");
+        share.TextAlignment = TextAlignment.Right;
+        Grid.SetColumn(share, 3);
+        row.Children.Add(share);
+        return row;
     }
 
     private static WrapPanel Chips(params UIElement[] chips)
