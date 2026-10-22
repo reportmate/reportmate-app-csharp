@@ -100,7 +100,7 @@ public sealed record MacSystemInfo(
 
         return new MacSystemInfo(
             operatingSystem,
-            Uptime: First(sys, "uptimeString", "uptime") ?? MacJson.Str(details, "uptimeString"),
+            Uptime: UptimeText(First(sys, "uptimeString", "uptime") ?? MacJson.Str(details, "uptimeString")),
             BootTimeText: bootText,
             BootTime: ParseTime(bootText),
             PendingUpdates: Items(sys, "pendingAppleUpdates", MacPendingUpdate.From),
@@ -133,6 +133,20 @@ public sealed record MacSystemInfo(
     /// present, so an empty "label" would hide a usable "name"; the Mac app's
     /// firstString skips blanks, and so does this.
     /// </summary>
+    /// <summary>
+    /// Uptime as a duration. The Mac client sends uptimeString when it has one and
+    /// the bare seconds otherwise, which read as "1296000" on the tab.
+    /// </summary>
+    public static string? UptimeText(string? value)
+    {
+        if (value is null || !double.TryParse(value, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var seconds)) return value;
+        var t = TimeSpan.FromSeconds(Math.Max(0, seconds));
+        if (t.TotalDays >= 1) return $"{(int)t.TotalDays}d {t.Hours}h {t.Minutes}m";
+        if (t.TotalHours >= 1) return $"{t.Hours}h {t.Minutes}m";
+        return $"{t.Minutes}m";
+    }
+
     internal static string? First(JsonElement? e, params string[] keys)
     {
         foreach (var key in keys)

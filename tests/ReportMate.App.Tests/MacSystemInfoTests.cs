@@ -263,4 +263,12 @@ public class MacSystemInfoTests
         Assert.Null(MacSystemInfo.From(JsonDocument.Parse("\"text\"").RootElement));
         Assert.Null(MacSystemInfo.From(null));
     }
+
+    [Theory]
+    [InlineData("1296000", "15d 0h 0m")]
+    [InlineData("3725", "1h 2m")]
+    [InlineData("3d 4h 12m", "3d 4h 12m")]
+    [InlineData(null, null)]
+    public void UptimeInSecondsReadsAsADuration(string? raw, string? expected) =>
+        Assert.Equal(expected, MacSystemInfo.UptimeText(raw));
 }
