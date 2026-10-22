@@ -194,7 +194,7 @@ public sealed class MacSystemSummary
     /// <summary>The Mac client sends uptime in seconds beside its own string; this covers a report with only the number.</summary>
     private static string? UptimeFromSeconds(double? seconds)
     {
-        if (seconds is not > 0) return null;
+        if (seconds is not > 0 || !double.IsFinite(seconds.Value) || seconds.Value >= TimeSpan.MaxValue.TotalSeconds) return null;
         var t = TimeSpan.FromSeconds(seconds.Value);
         return t.TotalDays >= 1 ? $"{(int)t.TotalDays}d {t.Hours}h {t.Minutes}m" : t.TotalHours >= 1 ? $"{t.Hours}h {t.Minutes}m" : $"{t.Minutes}m";
     }

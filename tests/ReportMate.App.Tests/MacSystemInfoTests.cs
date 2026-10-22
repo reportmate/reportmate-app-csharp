@@ -269,6 +269,9 @@ public class MacSystemInfoTests
     [InlineData("3725", "1h 2m")]
     [InlineData("3d 4h 12m", "3d 4h 12m")]
     [InlineData(null, null)]
+    [InlineData("NaN", "—")]
+    [InlineData("1e300", "—")]
+    [InlineData("-5", "0m")]
     public void UptimeInSecondsReadsAsADuration(string? raw, string? expected) =>
         Assert.Equal(expected, MacSystemInfo.UptimeText(raw));
 }

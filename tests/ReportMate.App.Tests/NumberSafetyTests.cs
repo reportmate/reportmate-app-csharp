@@ -74,3 +74,18 @@ public class NumberSafetyTests
         Assert.Equal(-4, Insights.Int(row, "neg"));
     }
 }
+
+public class MacNumberSafetyTests
+{
+    [Fact]
+    public void MacReadersDropUnusableNumbers()
+    {
+        var e = JsonDocument.Parse("""{"a":"NaN","b":"1e400","c":1e30,"d":"9e15","e":"12"}""").RootElement;
+        Assert.Null(ReportMate.App.Services.MacModules.MacJson.Num(e, "a"));
+        Assert.Null(ReportMate.App.Services.MacModules.MacJson.Num(e, "b"));
+        Assert.Null(ReportMate.App.Services.MacModules.MacJson.Int(e, "c"));
+        Assert.Null(ReportMate.App.Services.MacModules.MacJson.Date(e, "d"));
+        Assert.Equal(12, ReportMate.App.Services.MacModules.MacJson.Int(e, "e"));
+        Assert.Equal("—", ReportMate.App.Services.MacModules.MacApplicationsInfo.FormatDuration(double.NaN));
+    }
+}

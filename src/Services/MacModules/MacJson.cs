@@ -61,14 +61,17 @@ public static class MacJson
     /// <summary>A number, from a JSON number or a numeric string.</summary>
     public static double? Num(JsonElement? parent, params string[] paths) => Node(parent, paths) switch
     {
-        { ValueKind: JsonValueKind.Number } v => v.GetDouble(),
-        { ValueKind: JsonValueKind.String } v when double.TryParse(v.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) => d,
+        // NaN and infinity, which "NaN" or "1e400" parse to, are no number at all.
+        { ValueKind: JsonValueKind.Number } v when v.TryGetDouble(out var n) && double.IsFinite(n) => n,
+        { ValueKind: JsonValueKind.String } v when double.TryParse(v.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var d)
+            && double.IsFinite(d) => d,
         _ => null,
     };
 
-    public static int? Int(JsonElement? parent, params string[] paths) => Num(parent, paths) is { } d ? (int)d : null;
+    /// <summary>A whole number; null when absent or beyond an int, never a throw.</summary>
+    public static int? Int(JsonElement? parent, params string[] paths) => ReportMate.App.Services.Format.ToInt(Num(parent, paths));
 
-    public static long? Long(JsonElement? parent, params string[] paths) => Num(parent, paths) is { } d ? (long)d : null;
+    public static long? Long(JsonElement? parent, params string[] paths) => ReportMate.App.Services.Format.ToLong(Num(parent, paths));
 
     /// <summary>A flag: true/false, 1/0, "true"/"yes"/"1"/"enabled"/"on" and their opposites.</summary>
     public static bool? Bool(JsonElement? parent, params string[] paths) => Node(parent, paths) switch
@@ -95,7 +98,7 @@ public static class MacJson
         if (DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var when))
             return when;
         // Unix seconds, as osquery reports times.
-        if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds) && seconds > 1e8)
+        if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds) && seconds > 1e8 && seconds < 253_402_300_799)
             return DateTimeOffset.FromUnixTimeSeconds((long)seconds).UtcDateTime;
         return null;
     }

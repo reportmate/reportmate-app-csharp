@@ -319,7 +319,8 @@ public sealed class MacIdentityInfo
         if (Regex.IsMatch(cleaned, @"^\d{10,}$") && double.TryParse(cleaned, NumberStyles.Float, CultureInfo.InvariantCulture, out var n))
         {
             var seconds = n > 9_999_999_999 ? n / 1000 : n;
-            date = DateTimeOffset.FromUnixTimeMilliseconds((long)(seconds * 1000)).UtcDateTime;
+            if (seconds * 1000 is var ms && ms <= 253_402_300_799_999)
+                date = DateTimeOffset.FromUnixTimeMilliseconds((long)ms).UtcDateTime;
         }
         else if (Regex.IsMatch(cleaned, @"^[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}$"))
         {

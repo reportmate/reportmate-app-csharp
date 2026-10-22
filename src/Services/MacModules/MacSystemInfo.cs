@@ -141,6 +141,7 @@ public sealed record MacSystemInfo(
     {
         if (value is null || !double.TryParse(value, System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out var seconds)) return value;
+        if (!double.IsFinite(seconds) || seconds >= TimeSpan.MaxValue.TotalSeconds) return "—";
         var t = TimeSpan.FromSeconds(Math.Max(0, seconds));
         if (t.TotalDays >= 1) return $"{(int)t.TotalDays}d {t.Hours}h {t.Minutes}m";
         if (t.TotalHours >= 1) return $"{t.Hours}h {t.Minutes}m";

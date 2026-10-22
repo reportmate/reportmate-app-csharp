@@ -324,6 +324,7 @@ public sealed class MacApplicationsInfo
     /// <summary><c>formatDuration</c>: <c>45s</c>, <c>12m</c>, <c>3h 5m</c>, <c>4d 6h</c>.</summary>
     public static string FormatDuration(double seconds)
     {
+        if (!double.IsFinite(seconds) || seconds > 1e12) return "—";
         if (seconds <= 0) return "-";
         if (seconds < 60) return $"{(int)Math.Round(seconds, MidpointRounding.AwayFromZero)}s";
         if (seconds < 3600) return $"{(int)Math.Round(seconds / 60, MidpointRounding.AwayFromZero)}m";
