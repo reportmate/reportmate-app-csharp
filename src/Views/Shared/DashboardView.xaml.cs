@@ -450,6 +450,14 @@ public partial class DashboardView : UserControl
         else if (tag == "management-logs") page = new ManagementLogsPage();
         else if (tag == "coverage") page = new CoveragePage();
         else if (tag == "failures") page = new FailuresPage();
+        else if (tag == "report:applications")
+        {
+            // Rebuilt for the platform toggle with no link of its own, the report keeps
+            // the applications and filters it was showing rather than starting over.
+            var carried = PendingLink is null && _replaced.TryGetValue(tag, out var old) && old is ApplicationsReportPage shown
+                ? shown.CurrentLink() : null;
+            page = new ApplicationsReportPage(carried);
+        }
         else if (tag.StartsWith("report:", StringComparison.Ordinal))
         {
             var area = ReportArea.ById(tag["report:".Length..]);

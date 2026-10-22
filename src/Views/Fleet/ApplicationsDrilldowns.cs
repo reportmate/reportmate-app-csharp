@@ -167,8 +167,9 @@ public sealed class AppUsagePage : FleetPage
 
     protected override async Task<UIElement> BuildAsync()
     {
-        // The usage and catalog scope an App Usage link carries, which the endpoint takes as is.
-        var scope = string.Concat(new[] { "usages", "catalogs" }
+        // The usage, catalog and location scope a link carries, which the endpoint takes
+        // as is. It takes no platform: the per-device rows say which device each is.
+        var scope = string.Concat(new[] { "usages", "catalogs", "locations" }
             .Where(k => !string.IsNullOrWhiteSpace(Filter(k)))
             .Select(k => $"&{k}={Uri.EscapeDataString(Filter(k)!)}"));
         var result = await FleetApiClient.Instance.GetRawAsync(
