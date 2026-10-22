@@ -135,13 +135,19 @@ public static partial class Insights
         public OsBaseline(IEnumerable<JsonElement> rows)
         {
             var seen = new Dictionary<string, Dictionary<Version, int>>(StringComparer.Ordinal);
+            var majors = new Dictionary<int, int>();
             foreach (var row in rows)
             {
                 if (OsKey(row) is not { } key || OsPatchVersion(row) is not { } version) continue;
                 if (!seen.TryGetValue(key.Track, out var versions)) seen[key.Track] = versions = new();
                 versions[version] = versions.GetValueOrDefault(version) + 1;
-                if (key.MacMajor is { } major && major > _newestMac) _newestMac = major;
+                if (key.MacMajor is { } major) majors[major] = majors.GetValueOrDefault(major) + 1;
             }
+
+            // The newest major counts the same way: one Mac on a beta of the next
+            // release must not make the oldest supported one read as unsupported.
+            var established = majors.Where(m => m.Value >= LatestPatchMinDevices).Select(m => m.Key).ToList();
+            _newestMac = established.Count > 0 ? established.Max() : majors.Keys.DefaultIfEmpty(0).Max();
 
             foreach (var (track, versions) in seen)
             {
@@ -157,7 +163,10 @@ public static partial class Insights
             OsKey(row) is { } key && OsPatchVersion(row) is { } v
             && _latest.TryGetValue(key.Track, out var best) && v < best;
 
-        /// <summary>A macOS major more than two behind the newest one in the fleet.</summary>
+        /// <summary>
+        /// A macOS major more than two behind the newest major at least
+        /// <see cref="LatestPatchMinDevices"/> devices report.
+        /// </summary>
         public bool IsUnsupported(JsonElement row) =>
             OsKey(row) is { MacMajor: { } major } && _newestMac - major > 2;
 

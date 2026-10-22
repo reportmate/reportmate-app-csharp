@@ -113,6 +113,20 @@ public class DashboardCardsTests
     }
 
     [Fact]
+    public void OneBetaOfTheNextMajorDoesNotMakeAnOlderOneUnsupported()
+    {
+        var fleet = Enumerable.Range(1, 5).Select(i => $$"""{"serialNumber":"SAMPLE{{i}}","platform":"macOS","osVersion":"15.6.1"}""")
+            .Append("""{"serialNumber":"SAMPLE6","platform":"macOS","osVersion":"16.0"}""")
+            .Append("""{"serialNumber":"SAMPLE7","platform":"macOS","osVersion":"13.7.6"}""")
+            .Append("""{"serialNumber":"SAMPLE8","platform":"macOS","osVersion":"12.7.6"}""");
+        var rows = Rows("[" + string.Join(",", fleet) + "]");
+
+        // 15 is the newest major five devices run, so 13 is supported and 12 is not.
+        Assert.Equal(1, Insights.OsCurrency(rows).UnsupportedMac);
+        Assert.Equal(["SAMPLE8"], Serials("system", "os", "unsupported", rows));
+    }
+
+    [Fact]
     public void TheSystemReportHonoursTheOsCurrencyLinks()
     {
         Assert.Equal(["SAMPLE2", "SAMPLE5"], Serials("system", "patch", "behind", SystemRows));
