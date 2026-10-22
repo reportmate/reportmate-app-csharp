@@ -194,7 +194,7 @@ public sealed class EntraSession
         {
             if (!CachedDiscovery(key, out advertised))
             {
-                advertised = await SafeAsync(() => Discover(EntraSignIn.AuthConfigUrl(key), ct));
+                advertised = await SafeAsync(() => Discover(EntraSignIn.AuthConfigUrl(key), ct), ct);
                 lock (_sync) _discovered[key] = (advertised, DateTime.UtcNow);
             }
         }
@@ -209,7 +209,8 @@ public sealed class EntraSession
     {
         lock (_sync)
         {
-            if (_discovered.TryGetValue(key, out var hit) && DateTime.UtcNow - hit.At < DiscoveryLifetime)
+            if (_discovered.TryGetValue(key, out var hit)
+                && DateTime.UtcNow - hit.At < (hit.Config is null ? RetryAfterFailure : DiscoveryLifetime))
             {
                 advertised = hit.Config;
                 return true;
@@ -236,7 +237,7 @@ public sealed class EntraSession
             lock (_sync)
                 if (_failedAt.TryGetValue(audience, out var failed) && DateTime.UtcNow - failed < RetryAfterFailure) return null;
 
-            var token = (await SafeAsync(() => Mint(audience, ct)))?.Trim();
+            var token = (await SafeAsync(() => Mint(audience, ct), ct))?.Trim();
             lock (_sync)
             {
                 if (string.IsNullOrEmpty(token))
@@ -292,10 +293,17 @@ public sealed class EntraSession
         }
     }
 
-    private static async Task<T?> SafeAsync<T>(Func<Task<T?>> action) where T : class
+    /// <summary>
+    /// Run a discovery or a mint, reading any failure as "not available" so the
+    /// caller falls back to the stored credential. Only the caller's own cancellation
+    /// propagates: an HttpClient timeout is also an OperationCanceledException, and
+    /// letting a slow /auth/config through took the whole dashboard down with
+    /// "The request was canceled due to the configured HttpClient.Timeout".
+    /// </summary>
+    internal static async Task<T?> SafeAsync<T>(Func<Task<T?>> action, CancellationToken ct) where T : class
     {
         try { return await action(); }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch { return null; }
     }
 

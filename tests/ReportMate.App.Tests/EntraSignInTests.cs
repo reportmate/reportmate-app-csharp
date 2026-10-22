@@ -160,6 +160,46 @@ public class EntraSignInTests
     }
 
     [Fact]
+    public async Task ADiscoveryTimeoutLeavesEntraOffInsteadOfFailingTheRead()
+    {
+        // HttpClient reports its own Timeout as a TaskCanceledException, which is an
+        // OperationCanceledException the caller never asked for.
+        var minted = 0;
+        var session = new EntraSession
+        {
+            Discover = (_, _) => throw new TaskCanceledException(
+                "The request was canceled due to the configured HttpClient.Timeout of 8 seconds elapsing."),
+            Mint = (_, _) => { minted++; return Task.FromResult<string?>("token"); },
+        };
+        Assert.Null(await session.AudienceAsync(null, ApiUrlSource.Client, Api, default));
+        Assert.Null(await session.TokenAsync(null, ApiUrlSource.Client, Api, default));
+        Assert.Equal(0, minted);
+    }
+
+    [Fact]
+    public async Task AMintTimeoutFallsBackToo()
+    {
+        var session = new EntraSession
+        {
+            Discover = (_, _) => Task.FromResult<AuthConfig?>(new AuthConfig(true, Audience, [])),
+            Mint = (_, _) => throw new OperationCanceledException("az timed out"),
+        };
+        Assert.Null(await session.TokenAsync(null, ApiUrlSource.Client, Api, default));
+    }
+
+    [Fact]
+    public async Task TheCallersOwnCancellationStillPropagates()
+    {
+        using var cts = new CancellationTokenSource();
+        var session = new EntraSession
+        {
+            Discover = (_, token) => { cts.Cancel(); token.ThrowIfCancellationRequested(); return Task.FromResult<AuthConfig?>(null); },
+        };
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => session.AudienceAsync(null, ApiUrlSource.Client, Api, cts.Token));
+    }
+
+    [Fact]
     public void TheMissingSettingNamesAzLoginWhenTheApiSignsInWithEntra()
     {
         var text = FleetSetupHints.MissingSetting(hasApiUrl: true, hostSignIn: false, entraAudience: Audience);
