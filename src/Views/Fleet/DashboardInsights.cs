@@ -26,15 +26,20 @@ public sealed class DashboardInsightsModel
     public static DashboardInsightsModel Shared { get; } = new();
 
     /// <summary>
-    /// The reads, in the order they are requested. The managed-items read is last:
-    /// it is 130,000 rows across a couple of dozen pages, it sometimes answers 502,
-    /// and the two cards that use it show their counts without it.
+    /// The reads, in the order they are requested.
     /// </summary>
+    /// <remarks>
+    /// Not the managed items. That read is 130,000 rows across two dozen pages,
+    /// and every dashboard pulling it pushed the API container to its memory limit
+    /// until it restarted. Install Health and Software Risk show their counts, and
+    /// say their item lists are unavailable, until the cached dashboard insights
+    /// endpoint serves those lists.
+    /// </remarks>
     public static readonly IReadOnlyList<string> Sources =
     [
         "security", "management", "hardware", "system",
         "installs-filters", "failures", "identity", "network",
-        "peripherals", "certificates", "app-usage", "installs",
+        "peripherals", "certificates", "app-usage",
     ];
 
     /// <summary>The bulk module reports, read as rows: <c>/api/v1/&lt;module&gt;</c>.</summary>
@@ -407,7 +412,7 @@ public static class InsightWidgets
                 body.Children.Add(BarRow(name, devices, (double)devices / max, Ui.StatusBrush(Tone.Error),
                     L("installs", ("item", name), ("filter", "errors"))));
         }
-        else body.Children.Add(Pending(m, "installs", "The item list did not load, so only the counts are shown."));
+        else body.Children.Add(Pending(m, "installs", Unavailable));
 
         if (m.Document("installs-filters") is { } filters)
         {
@@ -514,7 +519,7 @@ public static class InsightWidgets
                 body.Children.Add(BarRow(name, devices, (double)devices / max, Ui.StatusBrush(Tone.Orange),
                     L("installs", ("item", name))));
         }
-        else body.Children.Add(Pending(m, "installs", "The item list did not load, so only the CVE counts are shown."));
+        else body.Children.Add(Pending(m, "installs", Unavailable));
         return body;
     }
 
@@ -642,6 +647,8 @@ public static class InsightWidgets
         else body.Children.Add(Pending(m, "peripherals", "Peripherals could not be loaded."));
         return body;
     }
+
+    private const string Unavailable = "Item list unavailable: it needs a fleet-wide read the API cannot serve yet.";
 
     // ── Marks ────────────────────────────────────────────────────────────
 
