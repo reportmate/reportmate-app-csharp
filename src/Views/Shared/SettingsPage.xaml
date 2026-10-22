@@ -107,8 +107,8 @@
                         <TextBlock Text="About" Style="{StaticResource SectionHeaderStyle}" Margin="0,4,0,0" />
                         <TextBlock Text="{Binding VersionDisplay}" Style="{StaticResource CaptionTextStyle}" Margin="0,6,0,0" />
                         <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                            <ui:HyperlinkButton Content="Documentation" NavigateUri="https://github.com/reportmate/reportmate-app-csharp" />
-                            <ui:HyperlinkButton Content="Report Issue" NavigateUri="https://github.com/reportmate/reportmate-app-csharp/issues" Margin="12,0,0,0" />
+                            <ui:HyperlinkButton Content="Documentation" Tag="https://github.com/reportmate/reportmate-app-csharp" Click="OnOpenLink" />
+                            <ui:HyperlinkButton Content="Report Issue" Tag="https://github.com/reportmate/reportmate-app-csharp/issues" Click="OnOpenLink" Margin="12,0,0,0" />
                         </StackPanel>
                     </StackPanel>
                     </shared:UniformCardPanel>

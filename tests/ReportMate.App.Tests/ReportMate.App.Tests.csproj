@@ -33,6 +33,7 @@
     <Compile Include="..\..\src\Services\EntraSignIn.cs" Link="EntraSignIn.cs" />
     <Compile Include="..\..\src\Services\ReportQueue.cs" Link="ReportQueue.cs" />
     <Compile Include="..\..\src\Services\RemoteDevice.cs" Link="RemoteDevice.cs" />
+    <Compile Include="..\..\src\Services\SafeLinks.cs" Link="SafeLinks.cs" />
     <!-- The Mac module readers: pure, one file per module. -->
     <Compile Include="..\..\src\Services\MacModules\*.cs" Link="MacModules\%(Filename)%(Extension)" />
     <Compile Include="..\..\src\Services\TolerantStringConverter.cs" Link="TolerantStringConverter.cs" />

@@ -300,7 +300,7 @@ public partial class DevicePage : Page
         var web = ConfigManager.Instance.WebDashboardUrl;
         if (string.IsNullOrWhiteSpace(web) || string.IsNullOrWhiteSpace(_vm.SerialNumber)) return;
         var url = CurrentLink().ToWebUrl(web);
-        try { Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true }); } catch { }
+        SafeLinks.TryOpen(url);
     }
 
     /// <summary>Lets the Run page hand control back after a collection finishes.</summary>

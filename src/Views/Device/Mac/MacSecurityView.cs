@@ -458,13 +458,13 @@ public static class MacSecurityView
             Part("Release:", name);
             if (release.ReleaseDate is { } date) Part("Date:", Format.ShortDate(date));
             if (release.DaysSincePreviousRelease is { } days) Part("Days since last:", days.ToString());
-            if (release.SecurityInfo is { } url && Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            if (SafeLinks.Parse(release.SecurityInfo) is { } uri)
             {
                 if (line.Inlines.Count > 0) line.Inlines.Add(new Run("    "));
                 var link = new Hyperlink(new Run("Apple Security Notes →")) { NavigateUri = uri };
                 link.RequestNavigate += (_, e) =>
                 {
-                    try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = e.Uri.AbsoluteUri, UseShellExecute = true }); } catch { }
+                    SafeLinks.TryOpen(e.Uri.OriginalString);
                     e.Handled = true;
                 };
                 line.Inlines.Add(link);
@@ -481,7 +481,8 @@ public static class MacSecurityView
         }
         else
         {
-            var rows = shown.Select(c => new CveRow(c.Id, c.Url ?? "", Format.OrDash(c.OsVersion), Format.OrDash(c.PatchedVersion),
+            // The reference comes from the device; only a web address survives.
+            var rows = shown.Select(c => new CveRow(c.Id, SafeLinks.Sanitise(c.Url), Format.OrDash(c.OsVersion), Format.OrDash(c.PatchedVersion),
                 c.Status == "Patched" ? "Patched" : c.ActivelyExploited ? "Exploited" : "Unpatched",
                 c.Status == "Patched" ? Tone.Success : c.ActivelyExploited ? Tone.Error : Tone.Warning,
                 "SOFA", Tone.Purple)).ToList();
