@@ -239,6 +239,9 @@ public sealed record ReportSpec(
                 new("Secure Boot", "secureBootEnabled", Platform: "Windows"),
                 new("Tamper protection", "tamperProtected", Platform: "Windows"),
                 new("Smart App Control", "smartAppControlState", Platform: "Windows"),
+                // Actionable certificates only: the API leaves OS roots and the
+                // certificates the OS or an agent rotates out of these counts.
+                new("Certificates", "", Derive: CertificateView.FleetLabel),
             ],
             [
                 new("Device", new("Device", "deviceName"), Star: true),
@@ -249,6 +252,7 @@ public sealed record ReportSpec(
                 new("Secure Boot", new("Secure Boot", "secureBootEnabled"), 110),
                 new("Threats", new("Threats", "activeThreatCount"), 90),
                 new("Critical CVEs", new("Critical CVEs", "criticalCveCount"), 110),
+                new("Certificates", new("Certificates", "", Derive: CertificateView.FleetSummary), 150),
             ]),
 
         ["network"] = new("network",
