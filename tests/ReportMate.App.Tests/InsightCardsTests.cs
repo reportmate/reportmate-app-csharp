@@ -196,6 +196,23 @@ public class InsightCardsTests
         Assert.Equal(Severity.Bad, trust.Items[2].Severity);
     }
 
+    [Fact]
+    public void DirectoryServicesCountsFromTotalAndUsesTheIdentityReportsColours()
+    {
+        var card = JsonDocument.Parse("""
+            {"total":12,"segments":[
+               {"key":"cloud_joined","label":"Cloud Joined","count":5},
+               {"key":"domain_joined","label":"Domain Joined","count":3},
+               {"key":"standard","label":"Standard","count":2},
+               {"key":"unjoined","label":"Unjoined","count":2}]}
+            """).RootElement;
+        var donut = InsightCards.Build("directoryServices", card).Parts.OfType<DonutPart>().Single();
+        Assert.Equal("12", donut.Centre);
+        Assert.Equal(["#10b981", "#f59e0b", "#3b82f6", "#ef4444"], donut.Slices.Select(s => s.Swatch));
+        Assert.Equal(["#eab308", "#f97316", "#ef4444"],
+            new[] { "Trusted", "Unconfirmed", "Broken" }.Select(InsightCards.DirectorySwatch));
+    }
+
     [Theory]
     [InlineData("<ts> -<n>:<n> [ERR] Device registration failed for <guid>", "Device registration failed for <guid>")]
     [InlineData("2026-10-22 14:03:11.123 +02:00 [ERROR] Download failed", "Download failed")]

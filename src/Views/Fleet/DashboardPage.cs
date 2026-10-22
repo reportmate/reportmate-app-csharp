@@ -551,10 +551,14 @@ public sealed class DashboardLayout : Grid
     /// <summary>Cards in a grid of up to <paramref name="columns"/> across, rows not stretched.</summary>
     private static Shared.UniformCardPanel Grid(IEnumerable<FrameworkElement> cards, int columns)
     {
-        var grid = Ui.CardGrid(300, 14);
+        // The layout's own gap, and a quarter width per card however many there
+        // are, so the cards under the columns line up with the columns. Three cards
+        // under a three-column layout stretched to a third of the page each.
+        var grid = Ui.CardGrid(300, Gap);
         grid.MaxColumns = columns;
         grid.StretchRows = false;
         grid.Balanced = false;
+        grid.KeepColumnWidth = true;
         foreach (var card in cards)
         {
             card.Margin = new Thickness(0);

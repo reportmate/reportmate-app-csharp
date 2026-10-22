@@ -14,10 +14,14 @@ public enum Severity { Neutral, Good, Warning, Bad, Info }
 /// <param name="Value">The text shown for the figure, when it is not just the count.</param>
 /// <param name="Fraction">A bar's length as a share, when it is not count over the longest bar.</param>
 /// <param name="Platform">A platform whose logo goes before the label.</param>
+/// <param name="Swatch">
+/// A fixed colour (#rrggbb) for this item's slice or bar, where the report it opens
+/// has its own colour for the same category and the card should match it.
+/// </param>
 public sealed record Metric(
     string Label, double Count, DeepLink? Link,
     Severity Severity = Severity.Neutral, string? Value = null, string? Detail = null,
-    double? Fraction = null, string? Platform = null)
+    double? Fraction = null, string? Platform = null, string? Swatch = null)
 {
     public string Shown => Value ?? Count.ToString("N0", CultureInfo.CurrentCulture);
 }
@@ -385,6 +389,24 @@ public static class InsightCards
     private static string Gb(double? bytes) => bytes is not > 0 ? "?"
         : bytes >= 1e12 ? $"{bytes / 1e12:0.#} TB" : $"{bytes / 1e9:0} GB";
 
+    /// <summary>
+    /// The Identity report's Directory Services colours, so the card and the widget
+    /// it opens agree: Cloud Joined green, Domain Joined amber with Trusted yellow,
+    /// Unconfirmed orange and Broken red, Standard blue, Unjoined red.
+    /// </summary>
+    public static string? DirectorySwatch(string? key) =>
+        new string((key ?? "").Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant() switch
+        {
+            "cloudjoined" or "cloud" or "entra" or "psso" => "#10b981",
+            "domainjoined" or "domain" or "hybrid" or "bound" => "#f59e0b",
+            "trusted" => "#eab308",
+            "unconfirmed" => "#f97316",
+            "broken" => "#ef4444",
+            "standard" => "#3b82f6",
+            "unjoined" or "workgroup" or "unbound" => "#ef4444",
+            _ => null,
+        };
+
     /// <summary>The Identity report's directory classes, in its order: <c>/identity?directory=</c>.</summary>
     public static readonly IReadOnlyList<string> DirectoryClasses = ["Cloud Joined", "Domain Joined", "Standard", "Unjoined"];
 
@@ -409,13 +431,19 @@ public static class InsightCards
             _ => Severity.Warning,
         };
         var segments = Array(v, "segments")
-            .Select(s => new Metric(Insights.Str(s, "label"), Insights.Int(s, "count"), ToDeepLink(Insights.Prop(s, "link")),
-                Tone(Insights.Str(s, "key") is { Length: > 0 } k ? k : Insights.Str(s, "label"))))
+            .Select(s =>
+            {
+                var key = Insights.Str(s, "key") is { Length: > 0 } k ? k : Insights.Str(s, "label");
+                return new Metric(Insights.Str(s, "label"), Insights.Int(s, "count"), ToDeepLink(Insights.Prop(s, "link")),
+                    Tone(key), Swatch: DirectorySwatch(key) ?? DirectorySwatch(Insights.Str(s, "label")));
+            })
             .ToList();
 
+        // The current card sends the device count as total; the earlier one as devices.
+        var devices = Insights.Number(v, "total") is { } total ? (int)total : Insights.Int(v, "devices");
         var parts = new List<CardPart>
         {
-            new DonutPart(Insights.Int(v, "devices").ToString("N0", CultureInfo.CurrentCulture), "devices", segments),
+            new DonutPart(devices.ToString("N0", CultureInfo.CurrentCulture), "devices", segments),
         };
 
         // Domain Joined's trust breakdown, under whichever name the card gives it.
@@ -431,7 +459,7 @@ public static class InsightCards
                         "broken" => Severity.Bad,
                         "unconfirmed" => Severity.Warning,
                         _ => Severity.Good,
-                    }))
+                    }, Swatch: DirectorySwatch(Insights.Str(t, "label"))))
                 .ToList()));
 
         parts.Add(new ChipsPart(

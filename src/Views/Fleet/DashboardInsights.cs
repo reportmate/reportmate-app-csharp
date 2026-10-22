@@ -457,8 +457,24 @@ public static class InsightWidgets
             Severity.Info => Ui.Brush("IconBlueForeground"),
             _ => Ui.Brush("SubtleFillHoverBrush"),
         };
-        return DonutWithLegend(part.Slices.Select(s => (s.Label, (int)s.Count, Paint(s.Severity), s.Link)).ToList(),
+        return DonutWithLegend(part.Slices.Select(s => (s.Label, (int)s.Count, Swatch(s) ?? Paint(s.Severity), s.Link)).ToList(),
             part.Centre, part.CentreLabel);
+    }
+
+    /// <summary>An item's own colour, when the card fixes one to match its report.</summary>
+    private static Brush? Swatch(Metric item)
+    {
+        if (item.Swatch is null) return null;
+        try
+        {
+            var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(item.Swatch));
+            brush.Freeze();
+            return brush;
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
     }
 
     private static UIElement Note(string text)
@@ -503,7 +519,8 @@ public static class InsightWidgets
         var label = PlatformIcon.Labelled(item.Platform, name, 12);
         if (label is FrameworkElement fe) fe.Margin = new Thickness(0, 0, 8, 0);
         row.Children.Add(label);
-        var track = Track(8, fraction, item.Severity == Severity.Neutral ? Ui.Brush("IconBlueForeground") : Ui.StatusBrush(ToneOf(item.Severity)));
+        var track = Track(8, fraction, Swatch(item)
+            ?? (item.Severity == Severity.Neutral ? Ui.Brush("IconBlueForeground") : Ui.StatusBrush(ToneOf(item.Severity))));
         Grid.SetColumn(track, 1);
         row.Children.Add(track);
         var n = Ui.Text(item.Shown);

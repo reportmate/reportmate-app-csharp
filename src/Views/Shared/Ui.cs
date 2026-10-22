@@ -534,11 +534,20 @@ public sealed class UniformCardPanel : Panel
     /// </summary>
     public bool StretchRows { get; set; } = true;
 
+    /// <summary>
+    /// Keep the column width a full row would have even when there are fewer cards
+    /// than columns, so three cards in a four-column grid sit at a quarter width each
+    /// and line up with the columns above, rather than stretching to fill the row.
+    /// </summary>
+    public bool KeepColumnWidth { get; set; }
+
     private int ColumnsFor(double width)
     {
         var count = InternalChildren.Count;
         var cols = (int)Math.Floor((width + Gap) / (MinItemWidth + Gap));
-        cols = Math.Clamp(cols, 1, Math.Max(1, Math.Min(MaxColumns, count == 0 ? 1 : count)));
+        cols = KeepColumnWidth
+            ? Math.Clamp(cols, 1, Math.Max(1, MaxColumns))
+            : Math.Clamp(cols, 1, Math.Max(1, Math.Min(MaxColumns, count == 0 ? 1 : count)));
         if (!Balanced || count == 0) return cols;
         var rows = (int)Math.Ceiling(count / (double)cols);
         return (int)Math.Ceiling(count / (double)rows);
