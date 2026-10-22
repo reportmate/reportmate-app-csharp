@@ -69,7 +69,7 @@ public static class MacInstallsView
                 var log = await fetchRunLog(CancellationToken.None);
                 logHost.Content = string.IsNullOrWhiteSpace(log)
                     ? Ui.Card(Ui.EmptyState("This device has not reported a run log."))
-                    : RunLogSection(log);
+                    : RunLogSection(log, open: true);
             });
             load.HorizontalAlignment = HorizontalAlignment.Left;
             logHost.Content = load;
@@ -367,7 +367,8 @@ public static class MacInstallsView
         };
     }
 
-    private static UIElement RunLogSection(string log)
+    /// <param name="open">Expanded, for a log the reader just asked for.</param>
+    private static UIElement RunLogSection(string log, bool open = false)
     {
         var text = MacInstallsInfo.CleanLogText(log);
         var pre = new TextBox
@@ -391,7 +392,7 @@ public static class MacInstallsView
         var body = new StackPanel();
         body.Children.Add(toolbar);
         body.Children.Add(pre);
-        return Ui.Card(Ui.Collapsible("Managed Software Update Last Run Log", body), new Thickness(20, 8, 20, 10));
+        return Ui.Card(Ui.Collapsible("Managed Software Update Last Run Log", body, open), new Thickness(20, 8, 20, 10));
     }
 
     private static Tone StatusTone(MacInstallState status) => status switch

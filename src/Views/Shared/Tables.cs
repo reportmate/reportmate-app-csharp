@@ -300,7 +300,7 @@ public static class Table
         text.AddHandler(UIElement.MouseLeftButtonUpEvent, new System.Windows.Input.MouseButtonEventHandler((s, _) =>
         {
             if (s is TextBlock tb && tb.Tag is string url && !string.IsNullOrWhiteSpace(url))
-                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = url, UseShellExecute = true }); } catch { }
+                ReportMate.App.Services.SafeLinks.TryOpen(url);
         }));
         return new DataTemplate { VisualTree = text };
     }
@@ -384,9 +384,21 @@ public sealed class SearchBox : TextBox
     {
         Style = (Style)Ui.Res("FilterTextBoxStyle");
         ModernWpf.Controls.Primitives.ControlHelper.SetPlaceholderText(this, placeholder);
-        TextChanged += (_, _) => onChanged(Text);
+        // Only typing reports a change. A box built with its text already set --
+        // which every tab does when it redraws with a filter active -- raised the
+        // change too, the tab redrew, built a new box with the same text, and so on
+        // without end.
+        TextChanged += (_, _) =>
+        {
+            if (!IsLoaded || Text == _reported) return;
+            _reported = Text;
+            onChanged(Text);
+        };
+        Loaded += (_, _) => _reported ??= Text;
         Margin = new Thickness(8, 0, 0, 0);
     }
+
+    private string? _reported;
 }
 
 /// <summary>

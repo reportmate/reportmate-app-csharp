@@ -102,7 +102,7 @@ public sealed class InstallsTab : DeviceTab
                 if (!string.IsNullOrWhiteSpace(log)) installs.RunLog = log;
                 logHost.Content = string.IsNullOrWhiteSpace(log)
                     ? Ui.Card(Ui.EmptyState("This device has not reported a run log."))
-                    : RunLogSection(log);
+                    : RunLogSection(log, open: true);
             });
             load.HorizontalAlignment = HorizontalAlignment.Left;
             logHost.Content = load;
@@ -357,7 +357,8 @@ public sealed class InstallsTab : DeviceTab
         };
     }
 
-    private static UIElement RunLogSection(string log)
+    /// <param name="open">Expanded, for a log the reader just asked for.</param>
+    private static UIElement RunLogSection(string log, bool open = false)
     {
         var text = CleanLogText(log);
         var pre = new TextBox
@@ -381,7 +382,7 @@ public sealed class InstallsTab : DeviceTab
         var body = new StackPanel();
         body.Children.Add(toolbar);
         body.Children.Add(pre);
-        return Ui.Card(Ui.Collapsible("Managed Software Update Last Run Log", body), new Thickness(20, 8, 20, 10));
+        return Ui.Card(Ui.Collapsible("Managed Software Update Last Run Log", body, open), new Thickness(20, 8, 20, 10));
     }
 
     // ── Processing (port of extractInstalls for the Cimian payload) ──

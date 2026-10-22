@@ -107,15 +107,25 @@ public static partial class Ui
             if (i > 0) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(gap) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(weights[i], GridUnitType.Star) });
         }
-        var col = 0;
+        // More children than columns wrap onto further rows. Placing them all on row
+        // zero stacked the extras in the last column, on top of what was there --
+        // the Info tab's System card drew Build over Feature that way.
+        var rows = (children.Length + weights.Length - 1) / Math.Max(1, weights.Length);
+        for (var r = 0; r < rows; r++)
+        {
+            if (r > 0) grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(gap) });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+        var index = 0;
         foreach (var child in children)
         {
             if (child is not null)
             {
-                Grid.SetColumn(child, col * 2);
+                Grid.SetColumn(child, index % weights.Length * 2);
+                Grid.SetRow(child, index / weights.Length * 2);
                 grid.Children.Add(child);
             }
-            col++;
+            index++;
         }
         return grid;
     }

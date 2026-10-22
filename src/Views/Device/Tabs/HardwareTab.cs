@@ -57,7 +57,7 @@ public sealed class HardwareTab : DeviceTab
         var (total, free) = HardwareWidget.InternalStorage(hw.Storage);
         var firstInternal = hw.Storage?.FirstOrDefault(d => d.IsInternal && d.Capacity > 0);
         var gpu = hw.Graphics;
-        var gpuVram = gpu?.MemorySize > 0 ? $"{Math.Round(gpu.MemorySize / 1024.0 / 1024 / 1024, 1)} GB VRAM" : null;
+        var gpuVram = $"{GpuMemory(gpu?.MemorySize)} VRAM";
         var gpuDetail = !string.IsNullOrWhiteSpace(gpu?.Manufacturer)
             ? $"{gpu.Manufacturer}{(string.IsNullOrWhiteSpace(gpu.DriverVersion) ? "" : $" - Driver {gpu.DriverVersion}")}"
             : "Graphics adapter";
@@ -214,6 +214,19 @@ public sealed class HardwareTab : DeviceTab
 
         return page;
     }
+
+    /// <summary>
+    /// Dedicated video memory, or "—" when the device does not say. WMI's
+    /// AdapterRAM is a 32-bit field: it reads 0 or wraps at 4 GB for larger cards,
+    /// so an RTX 3080 reported 0 and the card claimed "0 GB VRAM". Zero is never a
+    /// real answer for a GPU, and a value at the 4 GB ceiling may be a floor.
+    /// </summary>
+    internal static string GpuMemory(long? bytes) => bytes switch
+    {
+        null or <= 0 => "—",
+        >= 4L * 1024 * 1024 * 1024 - 1 and <= 4L * 1024 * 1024 * 1024 => "4 GB or more",
+        var b => $"{Math.Round(b.Value / 1024.0 / 1024 / 1024, 1)} GB",
+    };
 }
 
 /// <summary>

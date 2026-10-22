@@ -680,8 +680,15 @@ public sealed record DashboardChrome(bool ShowsSearchField = true, bool ShowsBra
 /// One search result, with the matched run of text kept apart from the rest so the
 /// template can weight it without a converter picking the string back apart.
 /// </summary>
-public sealed record DeviceHit(string Serial, string Before, string Match, string After, string Detail)
+public sealed record DeviceHit(string Serial, string Before, string Match, string After, string Detail, string Name = "")
 {
+    /// <summary>
+    /// What a screen reader announces for the suggestion: "name, serial". A record's
+    /// own ToString listed every property, and the suggestion list reads that out.
+    /// </summary>
+    public override string ToString() =>
+        string.IsNullOrWhiteSpace(Name) || Name == Serial ? Serial : $"{Name}, {Serial}";
+
     public static DeviceHit? For(FleetDevice device, string query)
     {
         // Name first, then the identifiers, so a device matched by name shows its
@@ -696,7 +703,7 @@ public sealed record DeviceHit(string Serial, string Before, string Match, strin
                 ? device.SerialNumber
                 : $"{device.Name} · {device.SerialNumber}";
             return new DeviceHit(device.SerialNumber,
-                field[..at], field.Substring(at, query.Length), field[(at + query.Length)..], detail);
+                field[..at], field.Substring(at, query.Length), field[(at + query.Length)..], detail, device.Name);
         }
         return null;
     }

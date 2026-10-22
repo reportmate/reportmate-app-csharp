@@ -64,7 +64,11 @@ public sealed class EventsTab : DeviceTab
         void Render()
         {
             var shown = _filter == "all" ? bundles : bundles.Where(b => b.Kind == _filter || b.Kinds.Contains(_filter)).ToList();
-            subtitle.Text = _filter == "all" ? $"{bundles.Count} total events" : $"{shown.Count} {_filter} events";
+            // Counted in events, as the filter chips count them; routine events
+            // folded into one row are still that many events.
+            subtitle.Text = _filter == "all"
+                ? $"{events.Count} total events" + (bundles.Count != events.Count ? $", in {bundles.Count} rows" : "")
+                : $"{counts.GetValueOrDefault(_filter)} {_filter} events";
             list.Children.Clear();
             foreach (var b in shown) list.Children.Add(Row(b));
             if (shown.Count == 0) list.Children.Add(Ui.Card(Ui.EmptyState($"No {_filter} events found.")));
