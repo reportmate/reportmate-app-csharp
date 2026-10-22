@@ -528,6 +528,12 @@ public sealed class UniformCardPanel : Panel
     /// </summary>
     public bool Balanced { get; set; } = true;
 
+    /// <summary>
+    /// Give every card in a row the row's height, so a grid of like cards lines up.
+    /// Off, each card keeps its own height and sits at the top of its row.
+    /// </summary>
+    public bool StretchRows { get; set; } = true;
+
     private int ColumnsFor(double width)
     {
         var count = InternalChildren.Count;
@@ -566,7 +572,8 @@ public sealed class UniformCardPanel : Panel
             var row = children.Skip(start).Take(cols).ToList();
             var rowHeight = row.Max(c => c.DesiredSize.Height);
             for (var c = 0; c < row.Count; c++)
-                row[c].Arrange(new Rect(c * (itemWidth + Gap), y, itemWidth, rowHeight));
+                row[c].Arrange(new Rect(c * (itemWidth + Gap), y, itemWidth,
+                    StretchRows ? rowHeight : row[c].DesiredSize.Height));
             y += rowHeight + Gap;
         }
         return finalSize;

@@ -51,12 +51,14 @@ public sealed class DashboardPage : FleetPage
         // each report lands, so the page is on screen before the slow reads finish.
         var insights = Ui.CardGrid(340, 14);
         insights.MaxColumns = 2;
+        // Each card is as tall as what it shows, not as tall as its row-mate.
+        insights.StretchRows = false;
         var hosts = DashboardInsightsModel.Reports.ToDictionary(r => r, r =>
         {
             var host = new ContentControl
             {
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                VerticalContentAlignment = VerticalAlignment.Stretch,
+                VerticalContentAlignment = VerticalAlignment.Top,
                 Content = InsightWidgets.Build(r),
             };
             insights.Children.Add(host);
@@ -385,7 +387,9 @@ public sealed class DashboardLayout : Grid
         switch (mode)
         {
             case Mode.Wide:
-                AddColumns(3, 4, 5);
+                // Status and insights share one width; activity, whose event
+                // messages are the content that wants room, takes the rest.
+                AddColumns(1, 1, 2);
                 SetColumn(_insights, 2);
                 SetColumn(_activity, 4);
                 // One card per row: the column is the width of one card.
