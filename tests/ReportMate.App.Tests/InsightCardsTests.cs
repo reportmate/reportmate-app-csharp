@@ -116,6 +116,23 @@ public class InsightCardsTests
         Assert.Equal("40 devices", bars[0].Items[0].Detail);
     }
 
+    [Theory]
+    [InlineData("""{"devices":9,"lowStorage":{"count":1}}""")]
+    [InlineData("""{"hardwareAtRisk":{"devices":9,"lowStorage":{"count":1}}}""")]
+    [InlineData("""{"generatedAt":"2026-10-22T18:00:00Z","cards":{"hardwareAtRisk":{"devices":9,"lowStorage":{"count":1}}}}""")]
+    public void APerCardResponseIsReadInAnyOfItsShapes(string json)
+    {
+        var section = InsightCards.SectionOf(JsonDocument.Parse(json).RootElement, "hardwareAtRisk");
+        Assert.Equal(9, section.GetProperty("devices").GetInt32());
+    }
+
+    [Fact]
+    public void A404SaysTheEndpointIsNotThereYet()
+    {
+        Assert.Contains("404", InsightCards.FailureText(404, "The API returned 404."));
+        Assert.Equal("The API returned 502.", InsightCards.FailureText(502, "The API returned 502."));
+    }
+
     [Fact]
     public void HardwareAtRiskNamesIntelMacsAgainstAllMacs()
     {

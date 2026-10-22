@@ -117,7 +117,12 @@ public sealed class EventsPage : FleetPage
             return host;
         }
 
-        host.Children.Add(Skeleton.Pulse(Skeleton.Rows(3)));
+        host.Children.Add(Skeleton.Capped(Skeleton.Pulse(Skeleton.Rows(3)), () =>
+        {
+            host.Children.Clear();
+            host.Children.Add(Skeleton.Pulse(Skeleton.Rows(3)));
+            _ = Fill(host, row.Id);
+        }));
         _ = Fill(host, row.Id);
         return host;
     }

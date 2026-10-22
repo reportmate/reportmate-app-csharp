@@ -8,17 +8,23 @@ using ReportMate.App.Views.Shared;
 namespace ReportMate.App.Views.Fleet;
 
 /// <summary>
-/// The dashboard's insight cards, read in one call: <c>GET /api/v1/dashboard/insights</c>.
+/// The dashboard's insight cards, read from the server's cached insights.
 /// </summary>
 /// <remarks>
-/// The server computes every card with aggregate SQL and caches it for five
-/// minutes, so a dashboard downloads a few kilobytes of counts and short lists
-/// instead of a dozen bulk reports. Reading those reports from every client pushed
-/// the API container to its memory limit until it restarted.
+/// The server computes every card with aggregate SQL and caches it, so a dashboard
+/// downloads a few kilobytes of counts and short lists instead of a dozen bulk
+/// reports. Reading those reports from every client pushed the API container to its
+/// memory limit until it restarted.
+///
+/// Two ways in, one store: the whole document from <c>/api/v1/dashboard/insights</c>,
+/// or, with <see cref="PerCard"/>, each card from
+/// <c>/api/v1/dashboard/insights/{card}</c> in parallel, so they paint as they land.
+/// Either way each card keeps its own section, error and start time, so a card can
+/// fail, retry or time out alone.
 ///
 /// One shared copy rather than one per page: the platform toggle and every
-/// navigation rebuild the dashboard page. The document is kept per platform scope,
-/// so toggling back is instant, and refreshed when older than four minutes -- the
+/// navigation rebuild the dashboard page. Cards are kept per platform scope, so
+/// toggling back is instant, and refreshed when older than four minutes -- the
 /// page's own timer fires every five.
 /// </remarks>
 public sealed class DashboardInsightsModel
@@ -27,11 +33,31 @@ public sealed class DashboardInsightsModel
 
     private static readonly TimeSpan Fresh = TimeSpan.FromMinutes(4);
 
-    private readonly Dictionary<PlatformScope, (JsonElement Document, DateTime At)> _documents = new();
-    private readonly Dictionary<PlatformScope, string> _errors = new();
+    /// <summary>A card shows a skeleton for at most this long, then says it is still loading.</summary>
+    public static readonly TimeSpan SkeletonLimit = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Read each card from its own endpoint, in parallel. Off until the per-card
+    /// endpoints are deployed; the whole document is one call meanwhile.
+    /// </summary>
+    public static bool PerCard { get; set; }
+
+    /// <summary>How many per-card reads run at once.</summary>
+    private const int PerCardConcurrency = 4;
+
+    private sealed class CardState
+    {
+        public JsonElement? Section;
+        public DateTime? LoadedAt;
+        public string? Error;
+        public DateTime? StartedAt;
+        public bool Loading;
+    }
+
+    private readonly Dictionary<(PlatformScope, string), CardState> _cards = new();
     private readonly Dictionary<PlatformScope, Task> _inFlight = new();
 
-    /// <summary>Raised on the UI thread whenever a document arrives or a read fails.</summary>
+    /// <summary>Raised on the UI thread whenever a card's state changes.</summary>
     public event Action? Changed;
 
     private static PlatformScope Scope => PlatformFilter.Current;
@@ -44,65 +70,133 @@ public sealed class DashboardInsightsModel
         _ => "all",
     };
 
-    /// <summary>One card's section for the current scope, or null until the document arrives.</summary>
-    public JsonElement? Card(string key) =>
-        _documents.TryGetValue(Scope, out var d) && Insights.Prop(d.Document, "cards") is { } cards
-            ? Insights.Prop(cards, key)
-            : null;
+    private CardState State(PlatformScope scope, string key)
+    {
+        if (!_cards.TryGetValue((scope, key), out var state)) _cards[(scope, key)] = state = new CardState();
+        return state;
+    }
 
-    public bool HasDocument => _documents.ContainsKey(Scope);
+    /// <summary>One card's section for the current scope, or null until it arrives.</summary>
+    public JsonElement? Card(string key) => State(Scope, key).Section;
 
-    /// <summary>Why the last read for the current scope failed, while there is no document to show.</summary>
-    public string? Error => _errors.GetValueOrDefault(Scope);
+    public bool HasCard(string key) => State(Scope, key).Section is not null;
 
-    public bool IsLoading => _inFlight.TryGetValue(Scope, out var t) && !t.IsCompleted;
+    /// <summary>Why the last read of a card failed, while it has nothing to show.</summary>
+    public string? Error(string key) => State(Scope, key).Error;
 
-    /// <summary>When the server computed the document on screen.</summary>
-    public DateTime? GeneratedAt =>
-        _documents.TryGetValue(Scope, out var d) && DateTime.TryParse(Insights.Str(d.Document, "generatedAt"),
-            null, System.Globalization.DateTimeStyles.AdjustToUniversal, out var at) ? at : null;
+    public bool IsLoading(string key) => State(Scope, key).Loading;
+
+    /// <summary>A first load that has run past <see cref="SkeletonLimit"/>.</summary>
+    public bool IsSlow(string key) =>
+        State(Scope, key) is { Loading: true, StartedAt: { } at } && DateTime.UtcNow - at >= SkeletonLimit;
+
+    /// <summary>True once any card has data, for the page's progress bar.</summary>
+    public bool HasDocument => InsightCards.Keys.Any(HasCard);
 
     public Task LoadAsync(bool force = false)
     {
         var scope = Scope;
         if (_inFlight.TryGetValue(scope, out var running) && !running.IsCompleted) return running;
-        if (!force && _documents.TryGetValue(scope, out var d) && DateTime.UtcNow - d.At < Fresh) return Task.CompletedTask;
-        var task = LoadCoreAsync(scope);
+        var stale = InsightCards.Keys.Where(k => force || State(scope, k).LoadedAt is not { } at || DateTime.UtcNow - at >= Fresh).ToList();
+        if (stale.Count == 0) return Task.CompletedTask;
+        var task = PerCard ? LoadCardsAsync(scope, stale) : LoadDocumentAsync(scope, stale);
         _inFlight[scope] = task;
-        Changed?.Invoke();
         return task;
     }
 
-    /// <summary>Read the document again, for a card's Retry.</summary>
-    public Task RetryAsync() => LoadAsync(force: true);
-
-    private async Task LoadCoreAsync(PlatformScope scope)
+    /// <summary>Read a card again, for its Retry: that card alone when cards are read one by one.</summary>
+    public Task RetryAsync(string key)
     {
+        if (!PerCard) return LoadAsync(force: true);
+        var scope = Scope;
+        return State(scope, key).Loading ? Task.CompletedTask : LoadCardsAsync(scope, [key]);
+    }
+
+    private void Begin(PlatformScope scope, IEnumerable<string> keys)
+    {
+        var now = DateTime.UtcNow;
+        foreach (var key in keys)
+        {
+            var state = State(scope, key);
+            state.Loading = true;
+            state.StartedAt = now;
+        }
+        Changed?.Invoke();
+        // Redraw once the skeleton limit passes, so a card still waiting says so.
+        _ = RemindAsync();
+    }
+
+    private async Task RemindAsync()
+    {
+        await Task.Delay(SkeletonLimit + TimeSpan.FromMilliseconds(100));
+        Changed?.Invoke();
+    }
+
+    private void Finish(PlatformScope scope, string key, JsonElement? section, string? error)
+    {
+        var state = State(scope, key);
+        state.Loading = false;
+        if (section is { } s)
+        {
+            state.Section = s;
+            state.LoadedAt = DateTime.UtcNow;
+            state.Error = null;
+        }
+        else
+        {
+            // The last good section stays on screen: a failed refresh should not
+            // blank a card that was showing something true five minutes ago.
+            state.Error = error ?? "This card could not be loaded.";
+        }
+    }
+
+    private async Task LoadDocumentAsync(PlatformScope scope, IReadOnlyList<string> keys)
+    {
+        Begin(scope, keys);
         JsonElement? document = null;
         var outcome = await ReportQueue.RunAsync(async ct =>
         {
             var r = await FleetApiClient.Instance.GetRawAsync(
                 $"/api/v1/dashboard/insights?platform={PlatformParameter(scope)}", ct);
-            if (!r.Ok) return new FetchOutcome(r.Detail ?? "The dashboard insights could not be loaded.", r.Transient);
+            if (!r.Ok) return Failure(r);
             using var doc = r.Data!;
             document = doc.RootElement.Clone();
             return FetchOutcome.Success;
         }, ReportQueue.DefaultTimeout);
 
-        if (outcome.Ok && document is { } d)
-        {
-            _documents[scope] = (d, DateTime.UtcNow);
-            _errors.Remove(scope);
-        }
-        else
-        {
-            // The last good document stays on screen: a failed refresh should not
-            // blank cards that were showing something true five minutes ago.
-            _errors[scope] = outcome.Error ?? "The dashboard insights could not be loaded.";
-        }
+        var cards = document is { } d ? Insights.Prop(d, "cards") : null;
+        foreach (var key in keys)
+            Finish(scope, key, cards is { } c ? Insights.Prop(c, key) : null,
+                outcome.Ok ? "The server sent nothing for this card." : outcome.Error);
         _inFlight.Remove(scope);
         Changed?.Invoke();
     }
+
+    private async Task LoadCardsAsync(PlatformScope scope, IReadOnlyList<string> keys)
+    {
+        Begin(scope, keys);
+        var sections = new Dictionary<string, JsonElement>();
+        await ReportQueue.RunAllAsync(keys, PerCardConcurrency,
+            async (key, ct) =>
+            {
+                var r = await FleetApiClient.Instance.GetRawAsync(
+                    $"/api/v1/dashboard/insights/{Uri.EscapeDataString(key)}?platform={PlatformParameter(scope)}", ct);
+                if (!r.Ok) return Failure(r);
+                using var doc = r.Data!;
+                sections[key] = InsightCards.SectionOf(doc.RootElement, key).Clone();
+                return FetchOutcome.Success;
+            },
+            (key, outcome) =>
+            {
+                // Each card paints as soon as its own read lands.
+                Finish(scope, key, sections.TryGetValue(key, out var s) ? s : null, outcome.Error);
+                Changed?.Invoke();
+            });
+        _inFlight.Remove(scope);
+    }
+
+    private static FetchOutcome Failure<T>(FleetApiClient.FleetResult<T> r) =>
+        new(InsightCards.FailureText(r.HttpStatus, r.Detail), r.Transient && r.HttpStatus != 404);
 }
 
 /// <summary>Where on the dashboard a card sits.</summary>
@@ -161,14 +255,18 @@ public static class InsightWidgets
     {
         var model = DashboardInsightsModel.Shared;
         UIElement body;
-        if (!model.HasDocument)
-            body = model.Error is { } error && !model.IsLoading
-                ? Failed(error)
+        if (!model.HasCard(card.Key))
+        {
+            // A skeleton for ten seconds at most: then the error if there is one, or
+            // a plain "still loading" with Retry.
+            body = model.Error(card.Key) is { } error && !model.IsLoading(card.Key) ? Failed(error, card.Key)
+                : model.IsSlow(card.Key) ? Skeleton.StillLoading(() => _ = model.RetryAsync(card.Key))
                 : Skeleton.Pulse(Skeleton.InsightBody(card.Shape));
+        }
         else
         {
             var view = InsightCards.Build(card.Key, model.Card(card.Key), PlatformFilter.Current != PlatformScope.All);
-            body = view.Error is { } error ? Failed(error) : Render(view, card.Hero);
+            body = view.Error is { } error ? Failed(error, card.Key) : Render(view, card.Hero);
         }
 
         var chevron = Ui.Icon("", 12, Ui.Brush("TextTertiaryBrush"));
@@ -468,13 +566,13 @@ public static class InsightWidgets
     }
 
     /// <summary>The error, and a Retry that reads the insights again.</summary>
-    private static UIElement Failed(string error)
+    private static UIElement Failed(string error, string key)
     {
         var panel = new StackPanel();
         var t = Ui.Caption(error);
         t.TextWrapping = TextWrapping.Wrap;
         panel.Children.Add(t);
-        var retry = Ui.IconButton("", "Retry", (_, _) => _ = DashboardInsightsModel.Shared.RetryAsync());
+        var retry = Ui.IconButton("", "Retry", (_, _) => _ = DashboardInsightsModel.Shared.RetryAsync(key));
         retry.HorizontalAlignment = HorizontalAlignment.Left;
         retry.Margin = new Thickness(0, 8, 0, 0);
         panel.Children.Add(retry);

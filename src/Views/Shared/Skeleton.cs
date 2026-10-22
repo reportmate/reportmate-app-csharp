@@ -126,6 +126,51 @@ public static class Skeleton
         return root;
     }
 
+    // ── The ten-second limit ─────────────────────────────────────────────
+
+    /// <summary>A skeleton is shown for this long at most.</summary>
+    public static readonly TimeSpan Limit = TimeSpan.FromSeconds(10);
+
+    /// <summary>What replaces a skeleton that has run its ten seconds: "Still loading…" and Retry.</summary>
+    public static UIElement StillLoading(Action retry, string? message = null)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 4) };
+        var text = Ui.Caption(message ?? "Still loading…");
+        text.VerticalAlignment = VerticalAlignment.Center;
+        text.Margin = new Thickness(0, 0, 10, 0);
+        row.Children.Add(text);
+        row.Children.Add(Ui.IconButton("\uE72C", "Retry", (_, _) => retry()));
+        return row;
+    }
+
+    /// <summary>
+    /// A skeleton that gives way to <see cref="StillLoading"/> once it has been on
+    /// screen for <see cref="Limit"/>, unless the real content has replaced it first.
+    /// </summary>
+    public static ContentControl Capped(UIElement skeleton, Action retry, string? message = null)
+    {
+        var host = new ContentControl
+        {
+            Content = skeleton,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Top,
+        };
+        System.Windows.Threading.DispatcherTimer? timer = null;
+        host.Loaded += (_, _) =>
+        {
+            if (timer is not null || !ReferenceEquals(host.Content, skeleton)) return;
+            timer = new System.Windows.Threading.DispatcherTimer { Interval = Limit };
+            timer.Tick += (_, _) =>
+            {
+                timer.Stop();
+                if (ReferenceEquals(host.Content, skeleton)) host.Content = StillLoading(retry, message);
+            };
+            timer.Start();
+        };
+        host.Unloaded += (_, _) => { timer?.Stop(); timer = null; };
+        return host;
+    }
+
     // ── Parts ────────────────────────────────────────────────────────────
 
     /// <summary>A card with a header -- icon tile, title, subtitle -- over a body.</summary>

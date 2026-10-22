@@ -139,7 +139,16 @@ public partial class DevicePage : Page
             pill.Margin = new Thickness(0, 0, 8, 0);
             PillsPanel.Children.Add(Skeleton.Pulse(pill));
         }
-        TabHost.Content = Skeleton.Pulse(Skeleton.DeviceTab());
+        TabHost.Content = Skeleton.Capped(Skeleton.Pulse(Skeleton.DeviceTab()), () => _ = ReloadAsync());
+
+        // The header's placeholders keep to the same ten seconds.
+        var limit = new System.Windows.Threading.DispatcherTimer { Interval = Skeleton.Limit };
+        limit.Tick += (_, _) =>
+        {
+            limit.Stop();
+            if (_vm.Snapshot.IsEmpty && DeviceNameText.Text.Length == 0) PillsPanel.Children.Clear();
+        };
+        limit.Start();
     }
 
     private void RenderHeader()

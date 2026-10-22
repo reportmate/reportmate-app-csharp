@@ -62,6 +62,26 @@ public static class InsightCards
         "expiringCertificates", "localAdminExposure", "unusedSoftware", "connectivityProblems",
     ];
 
+    // ── Responses ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A per-card response's section (<c>/api/v1/dashboard/insights/{card}</c>): the
+    /// card itself, the card under its key, or under <c>cards</c>, whichever shape
+    /// the endpoint settles on.
+    /// </summary>
+    public static JsonElement SectionOf(JsonElement root, string key) =>
+        Insights.Prop(root, "cards") is { } cards && Insights.Prop(cards, key) is { } inCards ? inCards
+        : Insights.Prop(root, key) is { ValueKind: JsonValueKind.Object } named ? named
+        : root;
+
+    /// <summary>
+    /// A failed read in words. A 404 means the server has no such endpoint yet: it
+    /// is final, so the card says so at once rather than waiting out its skeleton.
+    /// </summary>
+    public static string FailureText(int? httpStatus, string? detail) => httpStatus == 404
+        ? "This API does not serve dashboard insights yet (404)."
+        : detail ?? "The dashboard insights could not be loaded.";
+
     // ── Links ────────────────────────────────────────────────────────────
 
     /// <summary>

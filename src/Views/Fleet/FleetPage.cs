@@ -96,10 +96,18 @@ public abstract class FleetPage : Page
     /// <summary>A filter value from the arriving link, or null.</summary>
     protected string? Filter(string key) => Link?[key];
 
-    public async Task ReloadAsync()
+    private int _generation;
+
+    /// <param name="force">
+    /// Start again even while a load is running, for the Retry a stalled first load
+    /// offers. The load already running is not cancelled, but whatever it returns
+    /// is dropped: only the newest load may draw the page.
+    /// </param>
+    public async Task ReloadAsync(bool force = false)
     {
-        if (_loading) return;
+        if (_loading && !force) return;
         _loading = true;
+        var generation = ++_generation;
         try
         {
             Link ??= Views.Shared.DashboardView.TakePendingLink();
@@ -112,6 +120,7 @@ public abstract class FleetPage : Page
             }
             _strip.Start(labelled: _skeleton);
             var body = await BuildAsync();
+            if (generation != _generation) return;
 
             // A refresh that failed over data already on screen keeps that data and
             // says so in a banner; the full error page is for a page with nothing.
@@ -127,14 +136,18 @@ public abstract class FleetPage : Page
         }
         catch (Exception ex)
         {
+            if (generation != _generation) return;
             if (HasData) ShowBanner(ex.Message);
             else _scroll.Content = Ui.Card(Ui.EmptyState($"This page could not be built: {ex.Message}"));
             _skeleton = false;
         }
         finally
         {
-            _loading = false;
-            _strip.Stop();
+            if (generation == _generation)
+            {
+                _loading = false;
+                _strip.Stop();
+            }
         }
     }
 
@@ -187,7 +200,8 @@ public abstract class FleetPage : Page
         page.Children.Add(Heading is (string title, string subtitle, Accent accent)
             ? Ui.TabHeader(title, subtitle, "", accent)
             : Skeleton.Pulse(Skeleton.PageHeader()));
-        page.Children.Add(Skeleton.Pulse(LoadingBody()));
+        // Ten seconds of skeleton at most; then "Still loading…" with a Retry.
+        page.Children.Add(Skeleton.Capped(Skeleton.Pulse(LoadingBody()), () => _ = ReloadAsync(force: true)));
         return page;
     }
 
