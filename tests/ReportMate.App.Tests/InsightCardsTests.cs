@@ -70,10 +70,10 @@ public class InsightCardsTests
     public void ProtectionGapsKeepTheServersWorstFirstOrderAndShowTheShare()
     {
         var gaps = View("protectionGaps").Parts.OfType<BarsPart>().Single().Items;
-        Assert.Equal(["Firewall off", "Disk encryption off", "Secure Boot off"], gaps.Select(g => g.Label));
+        // Secure Boot off is at zero, so the breakdown leaves it out.
+        Assert.Equal(["Firewall off", "Disk encryption off"], gaps.Select(g => g.Label));
         Assert.Equal("6 of 10", gaps[0].Shown);
         Assert.Equal(0.6, gaps[0].Fraction);
-        Assert.Equal(Severity.Neutral, gaps[2].Severity);
     }
 
     [Fact]

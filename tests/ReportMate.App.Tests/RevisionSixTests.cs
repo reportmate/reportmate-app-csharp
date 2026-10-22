@@ -89,6 +89,30 @@ public class RevisionSixTests
     }
 
     [Fact]
+    public void ABreakdownHidesItsZeroRowsButFixedBucketsKeepThem()
+    {
+        var accounts = InsightCards.Build("userAccounts", Json("""
+            {"total":6,"authentication":[{"key":"modern","label":"Modern","count":6},{"key":"legacy","label":"Legacy","count":0}],
+             "adminAccounts":[{"name":"admin","devices":6},{"name":"unused","devices":0}]}
+            """));
+        Assert.Equal(["Modern"], accounts.Parts.OfType<DonutPart>().Single().Slices.Select(s => s.Label));
+        Assert.Equal(["admin"], accounts.Parts.OfType<BarsPart>().Single().Items.Select(i => i.Label));
+
+        var directory = InsightCards.Build("directoryServices", Json("""
+            {"total":3,"segments":[{"key":"Domain Joined","label":"Domain Joined","count":3,
+               "breakdown":[{"label":"Trusted","count":3},{"label":"Unconfirmed","count":0},{"label":"Broken","count":0}]},
+               {"key":"Unjoined","label":"Unjoined","count":0}]}
+            """));
+        Assert.Equal(["Domain Joined"], directory.Parts.OfType<DonutPart>().Single().Slices.Select(s => s.Label));
+        Assert.Equal(["Trusted"], directory.Parts.OfType<BarsPart>().Single().Items.Select(i => i.Label));
+
+        var uptime = InsightCards.Build("rebootDebt", Json("""
+            {"uptimeBuckets":[{"key":"lt1d","label":"< 1 day","count":0},{"key":"30d+","label":"30+ days","count":2}]}
+            """));
+        Assert.Equal(2, uptime.Parts.OfType<BarsPart>().Single().Items.Count);
+    }
+
+    [Fact]
     public void UserAccountsReadsTheShapeTheApiServes()
     {
         var view = InsightCards.Build("userAccounts", Json("""

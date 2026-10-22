@@ -39,8 +39,12 @@ public sealed record FiguresPart(IReadOnlyList<Metric> Items) : CardPart;
 /// detail right-aligned, so every column lines up down the list.
 /// </param>
 /// <param name="Columns">A tabular list's header row: the name, value and detail columns' titles.</param>
+/// <param name="Buckets">
+/// Fixed buckets -- uptime, free space, capacity -- where a zero says something and
+/// stays. A category breakdown hides its zero rows instead.
+/// </param>
 public sealed record BarsPart(string? Heading, IReadOnlyList<Metric> Items, bool Tabular = false,
-    IReadOnlyList<string>? Columns = null) : CardPart;
+    IReadOnlyList<string>? Columns = null, bool Buckets = false) : CardPart;
 
 /// <summary>Small "n label" chips.</summary>
 public sealed record ChipsPart(IReadOnlyList<Metric> Items) : CardPart;
@@ -180,7 +184,7 @@ public static class InsightCards
         if (Insights.Str(c, "error") is { Length: > 0 } error)
             return new CardView([], error);
 
-        return key switch
+        return WithoutZeroRows(key switch
         {
             "installHealth" => InstallHealth(c),
             "rebootDebt" => RebootDebt(c),
@@ -196,8 +200,24 @@ public static class InsightCards
             "userAccounts" => UserAccounts(c),
             AppUsage => AppUsageCard(c),
             _ => new CardView([], $"This app does not know the card {key}."),
-        };
+        });
     }
+
+    /// <summary>
+    /// A breakdown shows only what is there: a donut segment or a bar at zero --
+    /// Legacy 0, Unconfirmed 0 -- is left out. Fixed buckets keep their zeros.
+    /// </summary>
+    private static CardView WithoutZeroRows(CardView view) => view.Error is not null ? view : view with
+    {
+        Parts = view.Parts.Select(part => part switch
+        {
+            DonutPart d => d with { Slices = d.Slices.Where(m => m.Count > 0).ToList() },
+            BarsPart { Buckets: false } b => b with { Items = b.Items.Where(m => m.Count > 0).ToList() },
+            _ => part,
+        })
+        .Where(part => part is not BarsPart { Items.Count: 0, Buckets: false })
+        .ToList(),
+    };
 
     private static CardView RebootDebt(JsonElement c)
     {
@@ -210,7 +230,7 @@ public static class InsightCards
                 Figure(c, "uptime30dPlus", "up 30+ days", When(up30, Severity.Bad)),
                 Figure(c, "uptime2to4w", "up 2–4 weeks", When(up2to4, Severity.Warning)),
             ]),
-            new BarsPart("UPTIME", Array(c, "uptimeBuckets")
+            new BarsPart("UPTIME", Buckets: true, Items: Array(c, "uptimeBuckets")
                 .Select(b => new Metric(Insights.Str(b, "label"), Insights.Int(b, "count"),
                     ToDeepLink(Insights.Prop(b, "link")), Severity.Warning))
                 .ToList()),
@@ -348,11 +368,11 @@ public static class InsightCards
             .ToList();
         if (byPlatform.Count > 1) parts.Add(new BarsPart("UNDER 10% FREE, BY PLATFORM", byPlatform));
 
-        parts.Add(new BarsPart("FREE SPACE", Array(c, "freeSpace")
+        parts.Add(new BarsPart("FREE SPACE", Buckets: true, Items: Array(c, "freeSpace")
             .Select(b => new Metric(Insights.Str(b, "label"), Insights.Int(b, "count"), ToDeepLink(Insights.Prop(b, "link")),
                 Insights.Str(b, "key") switch { "lt5" => Severity.Bad, "5-10" => Severity.Warning, _ => Severity.Neutral }))
             .ToList()));
-        parts.Add(new BarsPart("CAPACITY", Array(c, "capacity")
+        parts.Add(new BarsPart("CAPACITY", Buckets: true, Items: Array(c, "capacity")
             .Select(b => new Metric(Insights.Str(b, "label"), Insights.Int(b, "count"), ToDeepLink(Insights.Prop(b, "link"))))
             .ToList()));
 
