@@ -77,7 +77,7 @@ public partial class SettingsPage : Page
         foreach (var body in new[] { InventoryBody, SecurityBody, MaintenanceBody })
         {
             body.Children.Clear();
-            body.Children.Add(Ui.Caption("Loading…"));
+            body.Children.Add(Skeleton.Pulse(Skeleton.Rows(4)));
         }
 
         var result = await FleetSettings.GetAsync();

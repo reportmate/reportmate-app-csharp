@@ -10,6 +10,8 @@
     <SolidColorBrush x:Key="CardBorderBrush" Color="#374151" />
     <SolidColorBrush x:Key="SubtleFillBrush" Color="#374151" />
     <SolidColorBrush x:Key="SubtleFillHoverBrush" Color="#4B5563" />
+    <!-- Skeleton blocks while a page loads: the web's dark:bg-gray-700. -->
+    <SolidColorBrush x:Key="SkeletonBrush" Color="#374151" />
     <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F9FAFB" />
     <SolidColorBrush x:Key="TextSecondaryBrush" Color="#9CA3AF" />
     <SolidColorBrush x:Key="TextTertiaryBrush" Color="#6B7280" />

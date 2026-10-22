@@ -74,20 +74,22 @@ public abstract class FleetPage : Page
         }
     }
 
+    /// <summary>
+    /// The page as it will look, in skeleton, while it loads: the real heading when
+    /// the page knows it, and grey blocks where its cards and table will be.
+    /// </summary>
     private UIElement Loading()
     {
-        var ring = new ModernWpf.Controls.ProgressRing { IsActive = true, Width = 28, Height = 28 };
-        var spinner = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 80, 0, 0) };
-        spinner.Children.Add(ring);
-        spinner.Children.Add(Ui.Caption("Loading fleet data"));
-
-        if (Heading is not (string title, string subtitle, Accent accent)) return spinner;
-
         var page = new StackPanel();
-        page.Children.Add(Ui.TabHeader(title, subtitle, "", accent));
-        page.Children.Add(spinner);
+        page.Children.Add(Heading is (string title, string subtitle, Accent accent)
+            ? Ui.TabHeader(title, subtitle, "", accent)
+            : Skeleton.Pulse(Skeleton.PageHeader()));
+        page.Children.Add(Skeleton.Pulse(LoadingBody()));
         return page;
     }
+
+    /// <summary>The skeleton under the heading; a report's cards and table unless a page says otherwise.</summary>
+    protected virtual UIElement LoadingBody() => Skeleton.ReportBody();
 
     /// <summary>
     /// The page body for a fleet read that did not succeed. The distinction matters:

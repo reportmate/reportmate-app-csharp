@@ -13,6 +13,8 @@ public sealed class DevicesPage : FleetPage
 
     private FilteredTable<DeviceRow>? _table;
 
+    protected override UIElement LoadingBody() => Skeleton.ListBody(8);
+
     /// <summary>
     /// Filter the list by the host app's search field, when the dashboard draws
     /// no search of its own (<see cref="DashboardChrome.ShowsSearchField"/>).
@@ -97,7 +99,7 @@ public sealed class DevicesPage : FleetPage
                 Col.Text("Device", "Name", star: true, sub: "Department"),
                 Col.Pill("Status", "Status", "StatusTone", 110),
                 Col.Text("Serial", "Serial", 160, mono: true),
-                Col.Text("Platform", "Platform", 110),
+                Col.Platform("Platform", "Platform", 120),
                 Col.Text("OS", "OsVersion", 130),
                 Col.Text("Usage", "Usage", 120),
                 Col.Text("Location", "Location", 130),

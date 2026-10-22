@@ -87,7 +87,7 @@ public sealed class ManagementTab : DeviceTab
         {
             var rows = intune.Select(p => new PolicyRow(DeviceSnapshot.FirstNonEmpty(p.PolicyName, p.PolicyId) ?? "", p.PolicyType ?? "", p.Platform ?? "", Format.OrDash(p.Status), p.Settings?.Count ?? 0, p.LastSync is null ? "—" : Format.RelativeTime(p.LastSync))).ToList();
             Add(Table.Card("Intune Policies", $"{Format.Plural(rows.Count, "policy").Replace("policys", "policies")} assigned by the MDM channel", rows, null, "",
-                Col.Text("Policy", "Name", star: true), Col.Text("Type", "Type", 160), Col.Text("Platform", "Platform", 110), Col.Text("Status", "Status", 110), Col.Text("Settings", "SettingCount", 80), Col.Text("Last Sync", "LastSync", 130)));
+                Col.Text("Policy", "Name", star: true), Col.Text("Type", "Type", 160), Col.Platform("Platform", "Platform", 110), Col.Text("Status", "Status", 110), Col.Text("Settings", "SettingCount", 80), Col.Text("Last Sync", "LastSync", 130)));
         }
         if (m.CompliancePolicies is { Count: > 0 } compliance)
         {

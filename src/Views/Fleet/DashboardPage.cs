@@ -18,6 +18,34 @@ public sealed class DashboardPage : FleetPage
     protected override (string, string, Accent)? Heading =>
         ("Dashboard", "Fleet status at a glance", Accent.Blue);
 
+    /// <summary>
+    /// The dashboard in skeleton, in the same layout it will take -- four columns
+    /// on a wide display, three with the cards below on a desktop -- so nothing moves
+    /// when the data lands.
+    /// </summary>
+    protected override UIElement LoadingBody()
+    {
+        var status = new StackPanel();
+        var fleet = new StackPanel();
+        fleet.Children.Add(Skeleton.Figures(1));
+        var bars = Skeleton.Bars(3);
+        bars.Margin = new Thickness(0, 16, 0, 0);
+        fleet.Children.Add(bars);
+        Stack(status, Skeleton.Card(fleet));
+        Stack(status, Ui.Columns(2, 14, Skeleton.Card(Skeleton.Figures(1), 70), Skeleton.Card(Skeleton.Figures(1), 70)));
+        Stack(status, Skeleton.Card(Skeleton.List(6)));
+
+        var activity = new StackPanel();
+        Stack(activity, Skeleton.Card(Skeleton.List(10, leadingPill: true)));
+        Stack(activity, Skeleton.Card(Skeleton.Bars(2)));
+        Stack(activity, Ui.Columns(2, 14, Skeleton.Card(Skeleton.Bars(5)), Skeleton.Card(Skeleton.Bars(5))));
+
+        var cards = InsightWidgets.All
+            .Select(card => (FrameworkElement)Skeleton.Card(Skeleton.InsightBody(card.Shape)))
+            .ToList();
+        return new DashboardLayout(status, cards, activity);
+    }
+
     protected override async Task<UIElement> BuildAsync()
     {
         var result = await FleetApiClient.Instance.GetDashboardAsync();
@@ -243,7 +271,7 @@ public sealed class DashboardPage : FleetPage
         var body = new StackPanel();
         var total = devices.Count;
         foreach (var (name, count) in groups)
-            body.Children.Add(Linked(Charts.Bar(name, count, total, name == "Windows" ? Tone.Info : Tone.Neutral),
+            body.Children.Add(Linked(Charts.Bar(name, count, total, name == "Windows" ? Tone.Info : Tone.Neutral, platform: name),
                 name == "Unknown" ? To("devices") : To("devices", ("platform", name))));
 
         return Linkable.LinkHeader(Ui.StatBlock("Platforms", "Devices by operating system", "", Accent.Purple, Pad(body)), To("devices"));
@@ -253,8 +281,8 @@ public sealed class DashboardPage : FleetPage
     {
         var matching = devices.Where(d => NormalizePlatform(d) == platform).ToList();
         if (matching.Count == 0)
-            return Linkable.LinkHeader(Ui.StatBlock($"{platform} Versions", null, "", Accent.Gray,
-                Pad(Ui.EmptyState($"No {platform} devices are reporting."))), To("system"));
+            return Linkable.LinkHeader(PlatformTile(Ui.StatBlock($"{platform} Versions", null, "", Accent.Gray,
+                Pad(Ui.EmptyState($"No {platform} devices are reporting."))), platform, Accent.Gray), To("system"));
 
         var groups = matching
             .GroupBy(OsLabel)
@@ -268,10 +296,23 @@ public sealed class DashboardPage : FleetPage
             body.Children.Add(Linked(Charts.Bar(name, count, matching.Count, Tone.Info),
                 name == "Unknown" ? To("system") : To("system", ("osVersion", name))));
 
-        return Linkable.LinkHeader(Ui.StatBlock($"{platform} Versions", $"{matching.Count:N0} devices", "", Accent.Teal, Pad(body)), To("system"));
+        return Linkable.LinkHeader(PlatformTile(Ui.StatBlock($"{platform} Versions", $"{matching.Count:N0} devices", "", Accent.Teal, Pad(body)), platform, Accent.Teal), To("system"));
     }
 
     // ── Small parts ──────────────────────────────────────────────────────
+
+    /// <summary>Put the platform's logo in a card's icon tile in place of the font glyph.</summary>
+    private static Border PlatformTile(Border card, string platform, Accent accent)
+    {
+        if (card.Child is StackPanel { Children.Count: > 0 } root && root.Children[0] is Grid header
+            && header.Children.Count > 0 && header.Children[0] is Border tile
+            && PlatformIcon.For(platform, 18, Ui.Brush($"Icon{accent}Foreground")) is { } logo)
+        {
+            logo.HorizontalAlignment = HorizontalAlignment.Center;
+            tile.Child = logo;
+        }
+        return card;
+    }
 
     private static DeepLink To(string section, params (string, string?)[] filters) => DeepLink.For(section, null, filters);
 

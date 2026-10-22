@@ -96,7 +96,7 @@ public sealed class CoveragePage : FleetPage
                     [
                         Col.Text("Device", "Device", star: true),
                         Col.Text("Serial", "Serial", 150, mono: true),
-                        Col.Text("Platform", "Platform", 100),
+                        Col.Platform("Platform", "Platform", 100),
                         Col.Text("State", "Bucket", 110),
                         Col.Text("Last usage", "LastUsage", 140),
                         Col.Text("Days dark", "Days", 100, sortBy: "DaysValue"),

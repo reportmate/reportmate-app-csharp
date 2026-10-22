@@ -106,9 +106,10 @@ public partial class DevicePage : Page
 
     private async Task ReloadAsync()
     {
-        LoadingRing.IsActive = true;
+        // The first read draws the page in skeleton, header and tab alike; a refresh
+        // over a report already on screen leaves it in place until the new one lands.
+        if (_vm.Snapshot.IsEmpty) ShowSkeleton();
         await _vm.LoadAsync();
-        LoadingRing.IsActive = false;
         foreach (var tab in _tabs) tab.Invalidate();
         RenderHeader();
         if (_vm.Snapshot.IsEmpty)
@@ -122,6 +123,23 @@ public partial class DevicePage : Page
         }
         EmptyPanel.Visibility = Visibility.Collapsed;
         ShowTab(_active ?? _tabs[0]);
+    }
+
+    private void ShowSkeleton()
+    {
+        EmptyPanel.Visibility = Visibility.Collapsed;
+        DeviceNameText.Text = "";
+        PillsPanel.Children.Clear();
+        var name = Skeleton.Line(180, 16);
+        name.Margin = new Thickness(0, 0, 12, 0);
+        PillsPanel.Children.Add(Skeleton.Pulse(name));
+        foreach (var width in new[] { 90.0, 110, 100 })
+        {
+            var pill = Skeleton.Block(width, 22, 11);
+            pill.Margin = new Thickness(0, 0, 8, 0);
+            PillsPanel.Children.Add(Skeleton.Pulse(pill));
+        }
+        TabHost.Content = Skeleton.Pulse(Skeleton.DeviceTab());
     }
 
     private void RenderHeader()

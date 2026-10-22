@@ -193,7 +193,8 @@ public sealed class DashboardInsightsModel
 /// </param>
 public sealed record InsightCard(
     string Id, string Title, string Subtitle, Accent Accent, string Glyph, DeepLink Header,
-    string? Primary, IReadOnlyList<string> Sources, Func<DashboardInsightsModel, UIElement> Body);
+    string? Primary, IReadOnlyList<string> Sources, Func<DashboardInsightsModel, UIElement> Body,
+    InsightShape Shape = InsightShape.Bars);
 
 /// <summary>
 /// The twelve insight cards, in the order the shared spec lists them. Every number,
@@ -213,25 +214,25 @@ public static class InsightWidgets
         new("security", "Security Posture", "Fleet-wide protections in place", Accent.Green, GlyphOf("security"),
             L("security"), "security", ["security"], m => SecurityBody(m.Rows("security"))),
         new("management", "Management", "MDM enrollment across the fleet", Accent.Purple, GlyphOf("management"),
-            L("management"), "management", ["management"], m => ManagementBody(m.Rows("management"))),
+            L("management"), "management", ["management"], m => ManagementBody(m.Rows("management")), InsightShape.Donut),
         new("hardware", "Hardware", "Architecture, memory and storage", Accent.Teal, GlyphOf("hardware"),
-            L("hardware"), "hardware", ["hardware"], m => HardwareBody(m.Rows("hardware"))),
+            L("hardware"), "hardware", ["hardware"], m => HardwareBody(m.Rows("hardware")), InsightShape.Donut),
         new("install-health", "Install Health", "Munki and Cimian across the fleet", Accent.Emerald, GlyphOf("installs"),
-            L("installs"), null, ["dashboard", "installs-filters", "installs"], InstallHealthBody),
+            L("installs"), null, ["dashboard", "installs-filters", "installs"], InstallHealthBody, InsightShape.Figures),
         new("check-ins", "Check-in Gaps", "Turned away, and gone quiet", Accent.Red, "",
-            DeepLink.For("events", "failures", ("hours", "24")), null, ["dashboard", "failures"], CheckInsBody),
+            DeepLink.For("events", "failures", ("hours", "24")), null, ["dashboard", "failures"], CheckInsBody, InsightShape.Figures),
         new("os-currency", "OS Currency", "On the latest patch for their version", Accent.Purple, GlyphOf("system"),
-            L("system"), "system", ["system"], m => OsCurrencyBody(m.Rows("system"))),
+            L("system"), "system", ["system"], m => OsCurrencyBody(m.Rows("system")), InsightShape.Donut),
         new("software-risk", "Software Risk", "Vulnerabilities and items behind", Accent.Red, GlyphOf("security"),
-            L("security"), "security", ["security", "installs"], SoftwareRiskBody),
+            L("security"), "security", ["security", "installs"], SoftwareRiskBody, InsightShape.Figures),
         new("certificates", "Certificates", "Expiring within 30 days", Accent.Yellow, "",
-            L("security"), "certificates", ["certificates", "security"], CertificatesBody),
+            L("security"), "certificates", ["certificates", "security"], CertificatesBody, InsightShape.Figures),
         new("identity", "Identity", "Directory join, admins and usage", Accent.Indigo, GlyphOf("identity"),
-            L("identity"), "identity", ["identity"], m => IdentityBody(m.Rows("identity"))),
+            L("identity"), "identity", ["identity"], m => IdentityBody(m.Rows("identity")), InsightShape.Donut),
         new("app-usage", "App Usage", "The last 30 days", Accent.Blue, GlyphOf("applications"),
             L("applications"), "app-usage", ["app-usage"], AppUsageBody),
         new("network", "Network & Peripherals", "Connections, printers and displays", Accent.Teal, GlyphOf("network"),
-            L("network"), "network", ["network", "peripherals", "hardware"], NetworkBody),
+            L("network"), "network", ["network", "peripherals", "hardware"], NetworkBody, InsightShape.Donut),
     ];
 
     /// <summary>The card in whatever state the shared model holds its reads.</summary>
@@ -242,9 +243,10 @@ public static class InsightWidgets
         if (card.Primary is { } primary && !model.Has(primary))
         {
             var error = model.Error(primary);
-            body = model.IsLoading(primary) ? Loading()
+            body = model.IsLoading(primary) ? Skeleton.Pulse(Skeleton.InsightBody(card.Shape))
                 : error is not null ? Failed(error, primary)
-                : Message("No data");
+                // Not asked for yet: the load starts a moment after the page draws.
+                : Skeleton.Pulse(Skeleton.InsightBody(card.Shape));
         }
         else
         {
@@ -414,7 +416,7 @@ public static class InsightWidgets
             chips.Margin = new Thickness(0, 10, 0, 0);
             body.Children.Add(chips);
         }
-        else if (m.IsLoading("installs-filters")) body.Children.Add(Loading());
+        else if (m.IsLoading("installs-filters")) body.Children.Add(Skeleton.Pulse(Skeleton.Chips(1)));
         else if (m.Error("installs-filters") is { } staleError)
             body.Children.Add(Failed($"Stale agents could not be loaded. {staleError}", "installs-filters"));
         return body;
@@ -854,7 +856,7 @@ public static class InsightWidgets
 
     /// <summary>An optional read's state where its part of a card would be.</summary>
     private static UIElement Pending(DashboardInsightsModel m, string source, string failed) =>
-        m.IsLoading(source) ? Loading()
+        m.IsLoading(source) ? Loading(5)
         : m.Error(source) is { } error ? Failed($"{failed} {error}", source)
         : Message(failed);
 
@@ -877,13 +879,6 @@ public static class InsightWidgets
         return t;
     }
 
-    private static UIElement Loading()
-    {
-        var panel = new StackPanel { Orientation = Orientation.Horizontal };
-        panel.Children.Add(new ModernWpf.Controls.ProgressRing { IsActive = true, Width = 16, Height = 16, Margin = new Thickness(0, 0, 8, 0) });
-        var text = Ui.Caption("Loading…");
-        text.VerticalAlignment = VerticalAlignment.Center;
-        panel.Children.Add(text);
-        return panel;
-    }
+    /// <summary>Where a part of a card is still loading: skeleton bar rows, not a spinner.</summary>
+    private static UIElement Loading(int rows = 3) => Skeleton.Pulse(Skeleton.Bars(rows));
 }

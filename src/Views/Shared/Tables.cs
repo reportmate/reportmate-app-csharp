@@ -77,12 +77,16 @@ public sealed class Col
     public static Col Bar(string header, string path, string percentPath, double? width = null)
         => new() { Header = header, Path = path, SubPath = percentPath, Kind = ColKind.Bar, Width = width };
 
+    /// <summary>A platform name with its logo before it.</summary>
+    public static Col Platform(string header, string path, double? width = null)
+        => new() { Header = header, Path = path, Kind = ColKind.Platform, Width = width };
+
     /// <summary>A clickable link; Path is the text, SubPath the URL.</summary>
     public static Col Link(string header, string path, string urlPath, double? width = null)
         => new() { Header = header, Path = path, SubPath = urlPath, Kind = ColKind.Link, Width = width };
 }
 
-public enum ColKind { Text, Pill, Bar, Link }
+public enum ColKind { Text, Pill, Bar, Link, Platform }
 
 /// <summary>Builds themed DataGrids from row objects and column definitions.</summary>
 public static class Table
@@ -173,6 +177,7 @@ public static class Table
             ColKind.Pill => PillTemplate(col),
             ColKind.Bar => BarTemplate(col),
             ColKind.Link => LinkTemplate(col),
+            ColKind.Platform => PlatformTemplate(col),
             _ => TextTemplate(col),
         };
         return column;
@@ -205,6 +210,31 @@ public static class Table
         sub.SetBinding(FrameworkElement.ToolTipProperty, new Binding(col.SubPath));
         sub.SetBinding(UIElement.VisibilityProperty, new Binding(col.SubPath) { Converter = (IValueConverter)Ui.Res("StringToVisibility") });
         panel.AppendChild(sub);
+        return new DataTemplate { VisualTree = panel };
+    }
+
+    private static readonly PlatformGeometryConverter PlatformGeometry = new();
+
+    private static DataTemplate PlatformTemplate(Col col)
+    {
+        var panel = new FrameworkElementFactory(typeof(StackPanel));
+        panel.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
+        panel.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        var icon = new FrameworkElementFactory(typeof(System.Windows.Shapes.Path));
+        icon.SetBinding(System.Windows.Shapes.Path.DataProperty, new Binding(col.Path) { Converter = PlatformGeometry });
+        icon.SetValue(System.Windows.Shapes.Shape.StretchProperty, Stretch.Uniform);
+        icon.SetValue(FrameworkElement.WidthProperty, 12.0);
+        icon.SetValue(FrameworkElement.HeightProperty, 12.0);
+        icon.SetValue(System.Windows.Shapes.Shape.FillProperty, Ui.Brush("TextSecondaryBrush"));
+        icon.SetValue(FrameworkElement.MarginProperty, new Thickness(0, 0, 7, 0));
+        icon.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        panel.AppendChild(icon);
+        var text = new FrameworkElementFactory(typeof(TextBlock));
+        text.SetBinding(TextBlock.TextProperty, new Binding(col.Path));
+        text.SetValue(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center);
+        text.SetValue(TextBlock.FontSizeProperty, 12.5);
+        text.SetValue(TextBlock.ForegroundProperty, Ui.Brush("TextPrimaryBrush"));
+        panel.AppendChild(text);
         return new DataTemplate { VisualTree = panel };
     }
 

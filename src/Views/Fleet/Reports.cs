@@ -308,7 +308,8 @@ public sealed class ReportPage : FleetPage
             var total = counts.Values.Sum();
             var body = new StackPanel();
             foreach (var (name, count) in counts.OrderByDescending(kv => kv.Value).Take(6))
-                body.Children.Add(Charts.Bar(Label(name), count, total, Tone.Info));
+                body.Children.Add(Charts.Bar(Label(name), count, total, Tone.Info,
+                    platform: field.Label is "Platform" or "Operating system" ? Label(name) : null));
 
             if (counts.Count > 6)
                 body.Children.Add(Ui.Caption($"and {counts.Count - 6:N0} more"));
