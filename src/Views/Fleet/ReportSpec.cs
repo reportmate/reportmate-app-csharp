@@ -280,6 +280,9 @@ public sealed record ReportSpec(
 
         ["identity"] = new("identity",
             [
+                // The class the Identity report's Directory Services widget uses,
+                // and the dashboard card links into with directory=.
+                new("Directory services", "", Derive: Insights.DirectoryClass),
                 new("Domain joined", "directoryServices.activeDirectory.isDomainJoined"),
                 new("Entra joined", "directoryServices.azureAd.joined"),
                 // Windows-only because macOS has no workgroup at all, not because

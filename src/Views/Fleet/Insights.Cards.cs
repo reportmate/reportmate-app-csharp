@@ -339,6 +339,44 @@ public static partial class Insights
     }
 
     /// <summary>
+    /// The Identity report's directory class, by the web identity route's rules:
+    /// joined to a domain (with or without Entra) is Domain Joined, Entra joined or
+    /// Platform SSO registered alone is Cloud Joined, a workgroup is Unjoined, and
+    /// anything else is Standard.
+    /// </summary>
+    public static string DirectoryClass(JsonElement row)
+    {
+        var ds = Either(row, "directoryServices", "directory_services") ?? default;
+        var ad = Either(ds, "activeDirectory", "active_directory");
+        var az = Either(ds, "azureAd", "azure_ad");
+        var domain = ad is { ValueKind: JsonValueKind.Object } a && (Boolish(a, "bound") || Boolish(a, "isDomainJoined"));
+        var entra = (az is { ValueKind: JsonValueKind.Object } z && Boolish(z, "joined"))
+            || (Either(row, "platformSSOUsers", "platform_sso_users") is { ValueKind: JsonValueKind.Object } p && Boolish(p, "deviceRegistered"));
+        if (domain) return "Domain Joined";
+        if (entra) return "Cloud Joined";
+        if (Prop(ds, "workgroup") is { ValueKind: JsonValueKind.String } w && (w.GetString() ?? "").Trim().Length > 0) return "Unjoined";
+        if (Prop(ds, "workgroup") is { ValueKind: JsonValueKind.True }) return "Unjoined";
+        return "Standard";
+    }
+
+    /// <summary>
+    /// A domain-joined device's trust, as the Identity report shows it: Trusted when
+    /// the domain trust is Healthy, Broken when it is Broken, otherwise Unconfirmed.
+    /// Null for a device that is not domain joined.
+    /// </summary>
+    public static string? DomainTrust(JsonElement row)
+    {
+        if (DirectoryClass(row) != "Domain Joined") return null;
+        var status = Prop(row, "domainTrust") is { } t ? Str(t, "trustStatus") : "";
+        return status switch
+        {
+            "Healthy" => "Trusted",
+            "Broken" => "Broken",
+            _ => "Unconfirmed",
+        };
+    }
+
+    /// <summary>
     /// A Mac's directory state, as the Directory Join card's Mac view counts it:
     /// <c>psso</c> (Platform SSO registered, or Entra joined), <c>bound</c> (bound to
     /// AD or LDAP), otherwise <c>unbound</c>.

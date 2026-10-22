@@ -33,7 +33,8 @@ public sealed class DashboardPage : FleetPage
         fleet.Children.Add(bars);
         Stack(status, Skeleton.Card(fleet));
         Stack(status, Skeleton.Card(Skeleton.InsightBody(InsightShape.Figures)));
-        Stack(status, Skeleton.Card(Skeleton.List(6)));
+        Stack(status, Skeleton.Card(Skeleton.InsightBody(InsightShape.Bars)));
+        Stack(status, Skeleton.Card(Skeleton.InsightBody(InsightShape.Figures)));
 
         var activity = new StackPanel();
         Stack(activity, Skeleton.Card(Skeleton.List(10, leadingPill: true)));
@@ -45,7 +46,8 @@ public sealed class DashboardPage : FleetPage
             .Where(card => card.Placement == InsightPlacement.Insights)
             .Select(card => (FrameworkElement)Skeleton.Card(Skeleton.InsightBody(card.Shape)))
             .ToList();
-        return new DashboardLayout(status, cards, activity);
+        return new DashboardLayout(status, cards, activity,
+            first: Skeleton.Card(Skeleton.List(6)), last: Skeleton.Card(Skeleton.InsightBody(InsightShape.Bars)));
     }
 
     protected override async Task<UIElement> BuildAsync()
@@ -83,12 +85,12 @@ public sealed class DashboardPage : FleetPage
         ContentControl Host(InsightPlacement placement) =>
             hosts.First(h => ((InsightCard)h.Tag).Placement == placement);
 
-        // Install Health replaces the old Errors and Warnings tiles, under Fleet
-        // Status, with the dashboard's largest numbers.
+        // Column 1: Fleet Status, then Installs (with the dashboard's largest
+        // numbers), Management Tools Logs and Check-in Gaps.
         var status = new StackPanel();
         Stack(status, StatusWidget(devices));
-        Stack(status, Host(InsightPlacement.StatusColumn));
-        Stack(status, NewClientsWidget(devices));
+        foreach (var host in hosts.Where(h => ((InsightCard)h.Tag).Placement == InsightPlacement.StatusColumn))
+            Stack(status, host);
 
         // App Usage takes the wide column's room for its app names, under the events.
         var activity = new StackPanel();
@@ -101,7 +103,10 @@ public sealed class DashboardPage : FleetPage
 
         var insightCards = hosts.Where(h => ((InsightCard)h.Tag).Placement == InsightPlacement.Insights)
             .Cast<FrameworkElement>().ToList();
-        var layout = new DashboardLayout(status, insightCards, activity) { Margin = new Thickness(0, 20, 0, 0) };
+        // New Clients heads the first insight column, and Reboot & Update Debt ends it.
+        var layout = new DashboardLayout(status, insightCards, activity,
+            first: (FrameworkElement)NewClientsWidget(devices), last: Host(InsightPlacement.InsightsLast))
+        { Margin = new Thickness(0, 20, 0, 0) };
         page.Children.Add(layout);
         return page;
     }
@@ -415,13 +420,20 @@ public sealed class DashboardLayout : Grid
     private readonly FrameworkElement _status;
     private readonly IReadOnlyList<FrameworkElement> _cards;
     private readonly FrameworkElement _activity;
+    private readonly FrameworkElement? _first;
+    private readonly FrameworkElement? _last;
     private Mode _mode = Mode.None;
 
-    public DashboardLayout(FrameworkElement status, IReadOnlyList<FrameworkElement> cards, FrameworkElement activity)
+    /// <param name="first">Heads the first insight column (New Clients), and the grid when there are no columns.</param>
+    /// <param name="last">Ends the first insight column (Reboot &amp; Update Debt), and the grid.</param>
+    public DashboardLayout(FrameworkElement status, IReadOnlyList<FrameworkElement> cards, FrameworkElement activity,
+        FrameworkElement? first = null, FrameworkElement? last = null)
     {
         _status = status;
         _cards = cards;
         _activity = activity;
+        _first = first;
+        _last = last;
         Apply(Mode.Medium);
         SizeChanged += (_, e) => Apply(ModeFor(e.NewSize.Width));
     }
@@ -439,7 +451,7 @@ public sealed class DashboardLayout : Grid
 
         // Take every element out of whatever held it before re-placing it.
         Children.Clear();
-        foreach (var card in _cards)
+        foreach (var card in Everything(_cards))
             if (card.Parent is Panel holder) holder.Children.Remove(card);
         ColumnDefinitions.Clear();
         RowDefinitions.Clear();
@@ -458,7 +470,7 @@ public sealed class DashboardLayout : Grid
                 // Insight columns share column 1's width; activity, whose event
                 // messages are the content that wants room, takes the rest.
                 AddColumns(1, 1, 1, 2);
-                var a = Column(_cards.Where((_, i) => i % 2 == 0));
+                var a = Column(Around(_cards.Where((_, i) => i % 2 == 0)));
                 var b = Column(_cards.Where((_, i) => i % 2 == 1));
                 Place(_status, 0, 0);
                 Place(a, 0, 2);
@@ -472,7 +484,7 @@ public sealed class DashboardLayout : Grid
                 AddColumns(1, 1, 2);
                 AddRows(2);
                 Place(_status, 0, 0);
-                Place(Column(_cards.Take(DesktopColumnCards)), 0, 2);
+                Place(Column(Around(_cards.Take(DesktopColumnCards))), 0, 2);
                 Place(_activity, 0, 4);
                 var below = Grid(_cards.Skip(DesktopColumnCards), 4);
                 below.Margin = new Thickness(0, Gap, 0, 0);
@@ -486,7 +498,7 @@ public sealed class DashboardLayout : Grid
                 AddRows(2);
                 Place(_status, 0, 0);
                 Place(_activity, 0, 2);
-                var below = Grid(_cards, 2);
+                var below = Grid(Everything(_cards), 2);
                 below.Margin = new Thickness(0, Gap, 0, 0);
                 Place(below, 1, 0, span: 3);
                 break;
@@ -498,13 +510,23 @@ public sealed class DashboardLayout : Grid
                 Place(_status, 0, 0);
                 Place(_activity, 1, 0);
                 _activity.Margin = new Thickness(0, Gap, 0, 0);
-                var below = Grid(_cards, 2);
+                var below = Grid(Everything(_cards), 2);
                 below.Margin = new Thickness(0, Gap, 0, 0);
                 Place(below, 2, 0);
                 break;
             }
         }
     }
+
+    /// <summary>The first column's cards with New Clients before them and Reboot &amp; Update Debt after.</summary>
+    private IEnumerable<FrameworkElement> Around(IEnumerable<FrameworkElement> cards)
+    {
+        if (_first is not null) yield return _first;
+        foreach (var card in cards) yield return card;
+        if (_last is not null) yield return _last;
+    }
+
+    private IEnumerable<FrameworkElement> Everything(IEnumerable<FrameworkElement> cards) => Around(cards);
 
     private void Place(FrameworkElement child, int row, int column, int span = 1)
     {

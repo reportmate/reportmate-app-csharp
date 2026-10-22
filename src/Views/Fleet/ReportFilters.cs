@@ -47,6 +47,10 @@ public static class ReportFilters
         _ => false,
     });
 
+    /// <summary>"Cloud Joined", "cloud-joined" and "cloud_joined" alike: <c>cloudjoined</c>.</summary>
+    private static string Slug(string? value) =>
+        new string((value ?? "").Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+
     private static bool Eq(string? a, string b) => string.Equals(a?.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
 
     private static readonly Dictionary<string, Dictionary<string, Rule>> Rules = new(StringComparer.OrdinalIgnoreCase)
@@ -165,7 +169,15 @@ public static class ReportFilters
                 _ => false,
             }),
             ["join"] = Simple((r, w) => Eq(Insights.JoinType(r), w)),
-            ["directory"] = Simple((r, w) => Insights.IsMac(r) && Eq(Insights.MacDirectory(r), w)),
+            // The Identity report's classes (Cloud Joined, Domain Joined and its
+            // Trusted / Unconfirmed / Broken, Standard, Unjoined), in any spelling of
+            // the label; and the earlier Mac-only psso, bound and unbound.
+            ["directory"] = Simple((r, w) => Slug(w) switch
+            {
+                "trusted" or "unconfirmed" or "broken" => Slug(Insights.DomainTrust(r)) == Slug(w),
+                "psso" or "bound" or "unbound" => Insights.IsMac(r) && Eq(Insights.MacDirectory(r), w),
+                var cls => Slug(Insights.DirectoryClass(r)) == cls || Slug(Insights.DirectoryClass(r)) == cls + "joined",
+            }),
             ["platform"] = PlatformRule,
             ["usage"] = Simple((r, w) => Eq(Insights.Usage(r), w)),
         },

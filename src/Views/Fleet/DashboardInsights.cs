@@ -114,11 +114,11 @@ public sealed class DashboardInsightsModel
         return state.Loading ? Task.CompletedTask : LoadCardsAsync(scope, [InsightCards.AppUsage]);
     }
 
-    private string CardPath(string key, PlatformScope scope)
+    private string CardPath(string key, PlatformScope scope, string? endpoint = null)
     {
         var platform = PlatformParameter(scope);
         if (key != InsightCards.AppUsage)
-            return $"/api/v1/dashboard/insights/{Uri.EscapeDataString(key)}?platform={platform}";
+            return $"/api/v1/dashboard/insights/{Uri.EscapeDataString(endpoint ?? key)}?platform={platform}";
         var query = $"platform={platform}&days=30";
         if (_usages.Count > 0) query += "&usages=" + Uri.EscapeDataString(string.Join(',', _usages));
         if (_catalogs.Count > 0) query += "&catalogs=" + Uri.EscapeDataString(string.Join(',', _catalogs));
@@ -201,7 +201,9 @@ public sealed class DashboardInsightsModel
 
         var cards = document is { } d ? Insights.Prop(d, "cards") : null;
         foreach (var key in keys)
-            Finish(scope, key, cards is { } c ? Insights.Prop(c, key) : null,
+            Finish(scope, key, cards is { } c
+                    ? InsightCards.Endpoints(key).Select(e => Insights.Prop(c, e)).FirstOrDefault(x => x is not null)
+                    : null,
                 outcome.Ok ? "The server sent nothing for this card." : outcome.Error);
         _inFlight.Remove(scope);
         Changed?.Invoke();
@@ -214,10 +216,19 @@ public sealed class DashboardInsightsModel
         await ReportQueue.RunAllAsync(keys, PerCardConcurrency,
             async (key, ct) =>
             {
-                var r = await FleetApiClient.Instance.GetRawAsync(CardPath(key, scope), ct);
-                if (!r.Ok) return Failure(r);
+                // A renamed card is asked for by its new name first, and by its old
+                // one when the API answers 404 because it predates the rename.
+                FleetApiClient.FleetResult<JsonDocument>? r = null;
+                string endpoint = key;
+                foreach (var candidate in InsightCards.Endpoints(key))
+                {
+                    endpoint = candidate;
+                    r = await FleetApiClient.Instance.GetRawAsync(CardPath(key, scope, candidate), ct);
+                    if (r.HttpStatus != 404) break;
+                }
+                if (!r!.Ok) return Failure(r);
                 using var doc = r.Data!;
-                sections[key] = InsightCards.SectionOf(doc.RootElement, key).Clone();
+                sections[key] = InsightCards.SectionOf(doc.RootElement, endpoint).Clone();
                 return FetchOutcome.Success;
             },
             (key, outcome) =>
@@ -244,6 +255,9 @@ public enum InsightPlacement
 
     /// <summary>In the wide events column, under Recent Events: App Usage.</summary>
     ActivityColumn,
+
+    /// <summary>At the bottom of the first insight column: Reboot &amp; Update Debt.</summary>
+    InsightsLast,
 }
 
 /// <summary>One insight card: its title, where its header goes, and its skeleton's shape.</summary>
@@ -265,43 +279,41 @@ public static class InsightWidgets
 
     private static DeepLink L(string section) => DeepLink.For(section);
 
+    /// <summary>
+    /// The cards, with where each sits. Column 1 holds Fleet Status, then Installs,
+    /// Management Tools Logs and Check-in Gaps; the first insight column starts with
+    /// New Clients and ends with Reboot &amp; Update Debt; App Usage sits under Recent
+    /// Events. Every card follows the toolbar's platform toggle and has none of its own.
+    /// </summary>
     public static readonly IReadOnlyList<InsightCard> All =
     [
-        new("installHealth", "Install Health", "Munki and Cimian across the fleet", Accent.Emerald, GlyphOf("installs"), L("installs"),
+        new("installHealth", "Installs", "Munki and Cimian across the fleet", Accent.Emerald, GlyphOf("installs"), L("installs"),
             Placement: InsightPlacement.StatusColumn, Hero: true),
-        new("rebootDebt", "Reboot & Update Debt", "Long uptimes and waiting updates", Accent.Orange, GlyphOf("system"), L("system"), InsightShape.Bars),
-        new("protectionGaps", "Protection Gaps", "Devices missing a protection", Accent.Red, GlyphOf("security"), L("security"), InsightShape.Bars),
-        new("managementToolErrors", "Management Tools Errors", "Errors in the management tools' logs", Accent.Purple, GlyphOf("management"), L("management"), InsightShape.Bars),
-        new("storage", "Storage", "Free space and capacity", Accent.Orange, GlyphOf("hardware"), L("hardware"), InsightShape.Bars),
+        new("managementToolLogs", "Management Tools Logs", "Errors in the management tools' own logs", Accent.Purple, GlyphOf("management"), L("management"), InsightShape.Bars,
+            Placement: InsightPlacement.StatusColumn),
         new("checkinGaps", "Check-in Gaps", "Turned away, and gone quiet", Accent.Red, "\uE7BA",
-            DeepLink.For("events", "failures", ("hours", "24"))),
+            DeepLink.For("events", "failures", ("hours", "24")), Placement: InsightPlacement.StatusColumn),
+        new("protectionGaps", "Protection Gaps", "Devices missing a protection", Accent.Red, GlyphOf("security"), L("security"), InsightShape.Bars),
+        new("storage", "Storage", "Free space and capacity", Accent.Orange, GlyphOf("hardware"), L("hardware"), InsightShape.Bars),
         new("osCurrency", "OS Currency", "On the latest patch for their version", Accent.Purple, GlyphOf("system"), L("system"), InsightShape.Donut),
         new("softwareRisk", "Software Risk", "Vulnerabilities and items behind", Accent.Red, GlyphOf("security"), L("security")),
         new("expiringCertificates", "Expiring Certificates", "Expiring soon, and already expired", Accent.Yellow, "\uEB95", L("security")),
-        new("directoryJoin", "Directory Join", "How devices are joined, and who administers them", Accent.Indigo, GlyphOf("identity"), L("identity"), InsightShape.Donut),
+        new("directoryServices", "Directory Services", "How devices are joined, and who administers them", Accent.Indigo, GlyphOf("identity"), L("identity"), InsightShape.Donut),
         new("connectivityProblems", "Connectivity Problems", "Weak Wi-Fi, poor networks and VPN", Accent.Teal, GlyphOf("network"), L("network")),
+        new("rebootDebt", "Reboot & Update Debt", "Long uptimes and waiting updates", Accent.Orange, GlyphOf("system"), L("system"), InsightShape.Bars,
+            Placement: InsightPlacement.InsightsLast),
         new(InsightCards.AppUsage, "App Usage", "The most-used apps", Accent.Blue, GlyphOf("applications"),
             DeepLink.For("applications", null, ("type", "usage"), ("period", "30")), InsightShape.Bars,
             Placement: InsightPlacement.ActivityColumn),
     ];
 
-    // ── Directory Join's view ────────────────────────────────────────────
-
-    private static string? _directoryChoice;
-    private static PlatformScope _directoryChoiceScope;
-
-    /// <summary>
-    /// Directory Join's view: the platform toggle's, unless the reader picked one in
-    /// the card since the toggle last changed.
-    /// </summary>
-    public static string DirectoryView =>
-        _directoryChoice is { } chosen && _directoryChoiceScope == PlatformFilter.Current ? chosen
-        : PlatformFilter.Current switch
-        {
-            PlatformScope.Windows => "windows",
-            PlatformScope.Mac => "mac",
-            _ => "all",
-        };
+    /// <summary>The view of an older Directory Join card that matches the toolbar's platform toggle.</summary>
+    public static string DirectoryView => PlatformFilter.Current switch
+    {
+        PlatformScope.Windows => "windows",
+        PlatformScope.Mac => "mac",
+        _ => "all",
+    };
 
     /// <summary>The card in whatever state the shared model holds it.</summary>
     public static UIElement Build(InsightCard card)
@@ -330,24 +342,10 @@ public static class InsightWidgets
     }
 
     /// <summary>
-    /// The controls a card carries above its body: Directory Join's All / Windows /
-    /// Mac views, and App Usage's usage and catalog chips.
+    /// The controls a card carries above its body: App Usage's usage and catalog chips.
     /// </summary>
     private static UIElement WithControls(InsightCard card, DashboardInsightsModel model, UIElement body)
     {
-        if (card.Key == "directoryJoin")
-        {
-            var views = Ui.Segmented(InsightCards.DirectoryViews, DirectoryView, key =>
-            {
-                _directoryChoice = key;
-                _directoryChoiceScope = PlatformFilter.Current;
-                model.Redraw();
-            });
-            views.Margin = new Thickness(0, 0, 0, 12);
-            views.HorizontalAlignment = HorizontalAlignment.Left;
-            return Stack(views, body);
-        }
-
         if (card.Key == InsightCards.AppUsage)
         {
             var (usages, catalogs) = InsightCards.AppUsageFilters(model.Card(card.Key));
@@ -420,7 +418,9 @@ public static class InsightWidgets
         if (part.Heading is { } heading) panel.Children.Add(Eyebrow(heading, first ? 0 : 14));
         var max = Math.Max(1, part.Items.Count == 0 ? 1 : part.Items.Max(i => i.Count));
         foreach (var item in part.Items)
-            panel.Children.Add(BarRow(item, item.Fraction ?? item.Count / max));
+            panel.Children.Add(part.Tabular
+                ? TableRow(item, item.Fraction ?? item.Count / max)
+                : BarRow(item, item.Fraction ?? item.Count / max));
         return panel;
     }
 
@@ -513,6 +513,43 @@ public static class InsightWidgets
         n.Margin = new Thickness(8, 0, 0, 0);
         Grid.SetColumn(n, 2);
         row.Children.Add(n);
+        return item.Link is { } link ? Row(row, link) : row;
+    }
+
+    /// <summary>
+    /// A row on a strict grid: name (flexible, truncated) | bar (fixed) | value
+    /// (right-aligned, fixed) | detail (right-aligned, fixed), so the columns line up
+    /// down the list -- App Usage's apps, hours and devices.
+    /// </summary>
+    private static UIElement TableRow(Metric item, double fraction)
+    {
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 80 });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(110) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+        var name = Ui.Text(item.Label);
+        name.FontSize = 13;
+        name.TextTrimming = TextTrimming.CharacterEllipsis;
+        name.ToolTip = item.Label;
+        name.Margin = new Thickness(0, 0, 10, 0);
+        name.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(name);
+        var track = Track(8, fraction, Ui.Brush("IconBlueForeground"));
+        Grid.SetColumn(track, 1);
+        row.Children.Add(track);
+        var value = Ui.Text(item.Shown);
+        value.FontSize = 13;
+        value.FontWeight = FontWeights.Medium;
+        value.TextAlignment = TextAlignment.Right;
+        value.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(value, 2);
+        row.Children.Add(value);
+        var detail = Ui.Caption(item.Detail ?? "");
+        detail.TextAlignment = TextAlignment.Right;
+        detail.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(detail, 3);
+        row.Children.Add(detail);
         return item.Link is { } link ? Row(row, link) : row;
     }
 

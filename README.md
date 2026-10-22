@@ -130,11 +130,14 @@ The dashboard follows the layout and cards shared with the web and Mac apps:
 | 1,420 to 1,939 | three columns 1/1/2, cards 1 to 4 beside status, cards 5 to 12 four across below |
 | 1,940 and over | four columns 1/1/1/2, the cards dealt alternately into two insight columns |
 
-The insight cards each answer one question: Install Health, Reboot & Update Debt,
-Protection Gaps, Management Tools Errors, Storage, Check-in Gaps, OS Currency,
-Software Risk, Expiring Certificates, Directory Join (All, Windows and Mac views,
-following the platform toggle), Connectivity Problems, and App Usage (the ten
-most-used apps, with Usage and Catalog chips). Each comes from its own cached call,
+The insight cards each answer one question: Installs, Management Tools Logs (the
+management tools' own logs, without the MDM agent's), Check-in Gaps, Reboot & Update
+Debt, Protection Gaps, Storage, OS Currency, Software Risk, Expiring Certificates,
+Directory Services (the Identity report's classes: Cloud Joined, Domain Joined with
+its Trusted, Unconfirmed and Broken trust, Standard and Unjoined), Connectivity
+Problems, and App Usage (the ten most-used apps on a fixed grid, with Usage and
+Catalog chips). Every card follows the toolbar's platform toggle; none has its own.
+Each comes from its own cached call,
 `GET /api/v1/dashboard/insights/{card}?platform=all|macOS|Windows`, and App Usage from
 `/api/v1/dashboard/insights/appUsage` with its filters, so the cards load in parallel
 and paint as they land. The server computes them with aggregate SQL; the app never
@@ -142,9 +145,10 @@ downloads a bulk report for the dashboard. Each call has a 45-second deadline an
 repeated every five minutes. A card shows a skeleton for ten seconds at most, then
 its error or "Still loading", with a Retry.
 
-Install Health sits under Fleet Status in the first column, with the dashboard's
-largest numbers, in place of the old Errors and Warnings tiles. App Usage sits in
-the wide column under Recent Events. Coming back to any fleet page shows what it last
+Column 1 holds Fleet Status, then Installs (with the dashboard's largest numbers),
+Management Tools Logs and Check-in Gaps. The first insight column starts with New
+Clients and ends with Reboot & Update Debt. App Usage sits in the wide column under
+Recent Events. Coming back to any fleet page shows what it last
 had at once and refreshes it in the background, with a thin bar across the top while
 it works. Skeletons, with a sweeping shimmer and a "Loading 1 of 2" bar, appear only
 on a page's first load. The device page always keeps every report as its own tab.
@@ -167,7 +171,7 @@ These are the link parameters the reports read. Multiple values are comma-separa
 | `hardware` | `arch` (`Apple Silicon`, `Intel`, `ARM64`, `x64`), `storage=low\|lt5\|5-10\|10-20\|20+`, `capacity=le256\|512\|1t\|2t+`, `platform`, `memory=le8`, `type=laptop\|desktop`, `processor` |
 | `installs` | `filter=errors\|warnings\|pending`, `item=<name>`, `stale=1`, `agent=munki\|cimian` |
 | `events/failures` | `hours`, `reason`, `outcome` |
-| `identity` | `admins=extra\|2\|3\|4+`, `join=entra\|domain\|hybrid\|workgroup`, `usage=shared\|assigned`, `directory=psso\|bound\|unbound`, `platform` |
+| `identity` | `admins=extra\|2\|3\|4+`, `join=entra\|domain\|hybrid\|workgroup`, `usage=shared\|assigned`, `directory=Cloud Joined\|Domain Joined\|Trusted\|Unconfirmed\|Broken\|Standard\|Unjoined`, `platform` |
 | `applications` | `apps`, `publishers`, `versions`; `applications/usage/<app>?days=30` for one app |
 | `network` | `connection=wired\|wifi`, `signal=weak` (under 25%), `quality=poor`, `vpn=1` |
 | `peripherals` | `kind=printers\|displays`, `room=<room>` |

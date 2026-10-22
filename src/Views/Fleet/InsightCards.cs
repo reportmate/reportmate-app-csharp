@@ -29,7 +29,11 @@ public abstract record CardPart;
 public sealed record FiguresPart(IReadOnlyList<Metric> Items) : CardPart;
 
 /// <summary>Labelled bars under an optional heading.</summary>
-public sealed record BarsPart(string? Heading, IReadOnlyList<Metric> Items) : CardPart;
+/// <param name="Tabular">
+/// Lay the rows out as fixed columns: name, bar, the value right-aligned, then the
+/// detail right-aligned, so every column lines up down the list.
+/// </param>
+public sealed record BarsPart(string? Heading, IReadOnlyList<Metric> Items, bool Tabular = false) : CardPart;
 
 /// <summary>Small "n label" chips.</summary>
 public sealed record ChipsPart(IReadOnlyList<Metric> Items) : CardPart;
@@ -54,23 +58,31 @@ public sealed record CardView(IReadOnlyList<CardPart> Parts, string? Error = nul
 /// </summary>
 public static class InsightCards
 {
-    /// <summary>The cards the insights endpoints serve, in the server's order.</summary>
+    /// <summary>The cards the insights endpoints serve.</summary>
     public static readonly IReadOnlyList<string> Keys =
     [
-        "installHealth", "rebootDebt", "protectionGaps", "managementToolErrors", "storage",
-        "checkinGaps", "osCurrency", "softwareRisk", "expiringCertificates", "directoryJoin",
+        "installHealth", "rebootDebt", "protectionGaps", "managementToolLogs", "storage",
+        "checkinGaps", "osCurrency", "softwareRisk", "expiringCertificates", "directoryServices",
         "connectivityProblems",
     ];
+
+    /// <summary>
+    /// The endpoints to try for a card, newest name first. The renamed cards keep
+    /// their old names until the API that serves the new ones is deployed: a 404 on
+    /// the new name falls back to the old one.
+    /// </summary>
+    public static IReadOnlyList<string> Endpoints(string key) => key switch
+    {
+        "managementToolLogs" => ["managementToolLogs", "managementToolErrors"],
+        "directoryServices" => ["directoryServices", "directoryJoin"],
+        _ => [key],
+    };
 
     /// <summary>App Usage: its own endpoint, filtered by usage and catalog.</summary>
     public const string AppUsage = "appUsage";
 
     /// <summary>Every card the dashboard reads, App Usage included.</summary>
     public static readonly IReadOnlyList<string> AllKeys = [.. Keys, AppUsage];
-
-    /// <summary>The Directory Join card's three views.</summary>
-    public static readonly IReadOnlyList<(string Key, string Label)> DirectoryViews =
-        [("all", "All"), ("windows", "Windows"), ("mac", "Mac")];
 
     // ── Responses ────────────────────────────────────────────────────────
 
@@ -164,13 +176,13 @@ public static class InsightCards
             "installHealth" => InstallHealth(c),
             "rebootDebt" => RebootDebt(c),
             "protectionGaps" => ProtectionGaps(c),
-            "managementToolErrors" => ManagementTools(c),
+            "managementToolLogs" or "managementToolErrors" => ManagementTools(c),
             "storage" => Storage(c),
             "checkinGaps" => CheckinGaps(c, scoped),
             "osCurrency" => OsCurrency(c),
             "softwareRisk" => SoftwareRisk(c),
             "expiringCertificates" => Certificates(c),
-            "directoryJoin" => DirectoryJoin(c, view),
+            "directoryServices" or "directoryJoin" => DirectoryServices(c, view),
             "connectivityProblems" => Connectivity(c),
             AppUsage => AppUsageCard(c),
             _ => new CardView([], $"This app does not know the card {key}."),
@@ -275,6 +287,7 @@ public static class InsightCards
     {
         var hours = Insights.Int(c, "windowHours");
         var tools = Array(c, "tools")
+            .Where(t => !IsMdmTool(t))
             .Select(t =>
             {
                 var withErrors = Insights.Int(t, "devicesWithErrors");
@@ -290,9 +303,16 @@ public static class InsightCards
         if (tools.Count > 0) parts.Add(new BarsPart("DEVICES WITH ERRORS, BY TOOL", tools));
         else parts.Add(new NotePart("No management tool logged an error."));
 
+        // Grouped again here, by tool and the message without its timestamp and level
+        // prefix: the first deployment of the endpoint listed one message five times.
         var messages = Array(c, "topErrors")
-            .Select(m => new Metric(Insights.Str(m, "message"), Insights.Int(m, "devices"), ToDeepLink(Insights.Prop(m, "link")),
-                Detail: $"{Insights.Str(m, "name")} · {Insights.Int(m, "devices"):N0} devices"))
+            .Where(m => !IsMdmTool(m))
+            .GroupBy(m => (Tool: Insights.Str(m, "tool"), Message: NormalizeMessage(Insights.Str(m, "message"))))
+            .Select(g => (g.Key.Message, Name: Insights.Str(g.First(), "name"), Devices: g.Sum(m => Insights.Int(m, "devices")),
+                Link: ToDeepLink(Insights.Prop(g.First(), "link"))))
+            .OrderByDescending(g => g.Devices)
+            .Take(5)
+            .Select(g => new Metric(g.Message, g.Devices, g.Link, Detail: $"{g.Name} · {g.Devices:N0} devices"))
             .ToList();
         if (messages.Count > 0) parts.Add(new ListPart("TOP ERRORS", messages));
         return new CardView(parts);
@@ -337,33 +357,90 @@ public static class InsightCards
         return new CardView(parts);
     }
 
+    /// <summary>
+    /// The MDM agent's own logs (Intune here, whatever the MDM is elsewhere) are out
+    /// of scope for this card. The runner files them under the <c>mdm</c> root.
+    /// </summary>
+    private static bool IsMdmTool(JsonElement node) =>
+        Insights.Str(node, "tool").Equals("mdm", StringComparison.OrdinalIgnoreCase)
+        || Insights.Str(node, "tool").Equals("enrollment", StringComparison.OrdinalIgnoreCase);
+
+    private static readonly System.Text.RegularExpressions.Regex LeadingStamp = new(
+        @"^\s*(?:<ts>|\[?\d{4}-\d{2}-\d{2}[T ]?[\d:.,]*\]?|\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?)?\s*"
+        + @"(?:[+-]?(?:<n>|\d{1,2}):?(?:<n>|\d{2}))?\s*"
+        + @"(?:\[(?:ERR|ERROR|WRN|WARN|WARNING|INF|INFO|DBG|DEBUG|E|W|I)\]|(?:ERROR|ERR|WARNING|WARN)\s*[:\-]?)?\s*",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// A log message without its leading timestamp, offset and level, so one message
+    /// logged at different times groups as one: <c>&lt;ts&gt; -&lt;n&gt;:&lt;n&gt; [ERR] Device
+    /// registration failed for &lt;guid&gt;</c> is <c>Device registration failed for &lt;guid&gt;</c>.
+    /// </summary>
+    public static string NormalizeMessage(string message)
+    {
+        var stripped = LeadingStamp.Replace(message, "", 1).Trim();
+        return stripped.Length == 0 ? message.Trim() : stripped;
+    }
+
     private static string Gb(double? bytes) => bytes is not > 0 ? "?"
         : bytes >= 1e12 ? $"{bytes / 1e12:0.#} TB" : $"{bytes / 1e9:0} GB";
 
-    /// <summary>Directory Join in one of its three views: the join donut, extra admins, shared and assigned.</summary>
-    private static CardView DirectoryJoin(JsonElement c, string view)
+    /// <summary>The Identity report's directory classes, in its order: <c>/identity?directory=</c>.</summary>
+    public static readonly IReadOnlyList<string> DirectoryClasses = ["Cloud Joined", "Domain Joined", "Standard", "Unjoined"];
+
+    /// <summary>
+    /// Directory Services, classified exactly as the Identity report's Directory
+    /// Services widget: Cloud Joined, Domain Joined (Trusted, Unconfirmed, Broken),
+    /// Standard and Unjoined, with the extra-admin, shared and assigned chips.
+    /// Reads the earlier Directory Join card too, taking the view that matches the
+    /// platform toggle, until the API serving the new card is deployed.
+    /// </summary>
+    private static CardView DirectoryServices(JsonElement c, string view)
     {
-        if (Node(c, "views") is not { } views) return new CardView([], "The server sent no directory views.");
-        if (Node(views, view) is not { ValueKind: JsonValueKind.Object } v) v = Node(views, "all") ?? default;
+        var v = c;
+        if (Node(c, "views") is { } views)
+            v = Node(views, view) is { ValueKind: JsonValueKind.Object } chosen ? chosen : Node(views, "all") ?? default;
+
+        Severity Tone(string key) => key.Replace(" ", "").Replace("-", "").ToLowerInvariant() switch
+        {
+            "cloudjoined" or "entra" or "psso" => Severity.Good,
+            "domainjoined" or "domain" or "hybrid" or "bound" or "trusted" => Severity.Info,
+            "standard" => Severity.Neutral,
+            _ => Severity.Warning,
+        };
         var segments = Array(v, "segments")
             .Select(s => new Metric(Insights.Str(s, "label"), Insights.Int(s, "count"), ToDeepLink(Insights.Prop(s, "link")),
-                Insights.Str(s, "key") switch
-                {
-                    "entra" or "psso" => Severity.Info,
-                    "hybrid" or "domain" or "bound" => Severity.Good,
-                    _ => Severity.Warning,
-                }))
+                Tone(Insights.Str(s, "key") is { Length: > 0 } k ? k : Insights.Str(s, "label"))))
             .ToList();
-        return new CardView(
-        [
+
+        var parts = new List<CardPart>
+        {
             new DonutPart(Insights.Int(v, "devices").ToString("N0", CultureInfo.CurrentCulture), "devices", segments),
-            new ChipsPart(
-            [
-                Figure(v, "extraAdmins", "with extra local admins", Severity.Warning),
-                Figure(v, "shared", "shared", Severity.Neutral),
-                Figure(v, "assigned", "assigned", Severity.Neutral),
-            ]),
-        ]);
+        };
+
+        // Domain Joined's trust breakdown, under whichever name the card gives it.
+        var trust = new[] { "trust", "domainTrust", "breakdown" }
+            .Select(name => Array(v, name).ToList())
+            .FirstOrDefault(list => list.Count > 0)
+            ?? Array(v, "segments").SelectMany(s => new[] { "children", "breakdown", "trust" }.SelectMany(n => Array(s, n))).ToList();
+        if (trust.Count > 0)
+            parts.Add(new BarsPart("DOMAIN JOINED TRUST", trust
+                .Select(t => new Metric(Insights.Str(t, "label"), Insights.Int(t, "count"), ToDeepLink(Insights.Prop(t, "link")),
+                    Insights.Str(t, "label").ToLowerInvariant() switch
+                    {
+                        "broken" => Severity.Bad,
+                        "unconfirmed" => Severity.Warning,
+                        _ => Severity.Good,
+                    }))
+                .ToList()));
+
+        parts.Add(new ChipsPart(
+        [
+            Figure(v, "extraAdmins", "with extra local admins", Severity.Warning),
+            Figure(v, "shared", "shared", Severity.Neutral),
+            Figure(v, "assigned", "assigned", Severity.Neutral),
+        ]));
+        return new CardView(parts);
     }
 
     /// <summary>App Usage: the ten most-used apps within the chosen usages and catalogs.</summary>
@@ -372,11 +449,11 @@ public static class InsightCards
         var apps = Array(c, "apps")
             .Select(a => new Metric(Insights.Str(a, "name"), Insights.Number(a, "totalHours") ?? 0, ToDeepLink(Insights.Prop(a, "link")),
                 Severity.Info, Value: $"{Insights.Number(a, "totalHours") ?? 0:N0} h",
-                Detail: Insights.Int(a, "activeDevices") is var d and > 0 ? $"{d:N0} devices" : null))
+                Detail: $"{(Insights.Int(a, "activeDevices") is var d and > 0 ? d : Insights.Int(a, "devices")):N0} devices"))
             .ToList();
         var parts = new List<CardPart>();
         parts.Add(apps.Count > 0
-            ? new BarsPart("MOST USED", apps)
+            ? new BarsPart("MOST USED", apps, Tabular: true)
             : new NotePart("No application usage matches these filters."));
         parts.Add(new NotePart($"Over the last {Insights.Int(c, "days")} days."));
         return new CardView(parts);

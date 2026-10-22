@@ -132,14 +132,17 @@ public class InsightCardsTests
     [Fact]
     public void ManagementToolsListToolsByDevicesWithErrorsAndTheTopMessages()
     {
-        var view = View("managementToolErrors");
+        var view = View("managementToolLogs");
         var tools = view.Parts.OfType<BarsPart>().Single().Items;
+        // The MDM agent's own logs are not this card's subject.
         Assert.Equal(["Cimian", "ReportMate"], tools.Select(t => t.Label));
         Assert.Equal("Windows", tools[0].Platform);
         Assert.Null(tools[1].Platform);
         Assert.Equal("reportmate://devices?level=error&platform=Windows&tool=installs", tools[0].Link!.ToAppUrl());
+        // One message logged with and without its timestamp and level is one row.
         var top = view.Parts.OfType<ListPart>().Single().Items.Single();
-        Assert.StartsWith("Failed to download", top.Label);
+        Assert.Equal("Failed to download <n> from <path>", top.Label);
+        Assert.Equal(5, top.Count);
     }
 
     [Fact]
@@ -159,18 +162,64 @@ public class InsightCardsTests
     [InlineData("all", "Entra joined", "reportmate://identity?join=entra")]
     [InlineData("windows", "Workgroup", "reportmate://identity?join=workgroup&platform=Windows")]
     [InlineData("mac", "Platform SSO / Entra", "reportmate://identity?directory=psso&platform=macOS")]
-    public void DirectoryJoinShowsTheChosenView(string viewKey, string label, string link)
+    public void AnEarlierDirectoryJoinCardShowsTheViewForTheToggle(string viewKey, string label, string link)
     {
-        var view = InsightCards.Build("directoryJoin", Card("directoryJoin"), view: viewKey);
+        var view = InsightCards.Build("directoryServices", Card("directoryServices"), view: viewKey);
         var donut = view.Parts.OfType<DonutPart>().Single();
         Assert.Equal(link, donut.Slices.First(s => s.Label == label).Link!.ToAppUrl());
+    }
+
+    [Fact]
+    public void DirectoryServicesUsesTheIdentityReportsClassesAndTrust()
+    {
+        var card = JsonDocument.Parse("""
+            {"devices":10,
+             "segments":[
+               {"key":"Cloud Joined","label":"Cloud Joined","count":4,"link":{"path":"/identity","params":{"directory":"Cloud Joined"}}},
+               {"key":"Domain Joined","label":"Domain Joined","count":3,"link":{"path":"/identity","params":{"directory":"Domain Joined"}},
+                "breakdown":[
+                  {"key":"Trusted","label":"Trusted","count":1,"link":{"path":"/identity","params":{"directory":"Trusted"}}},
+                  {"key":"Unconfirmed","label":"Unconfirmed","count":1,"link":{"path":"/identity","params":{"directory":"Unconfirmed"}}},
+                  {"key":"Broken","label":"Broken","count":1,"link":{"path":"/identity","params":{"directory":"Broken"}}}]},
+               {"key":"Standard","label":"Standard","count":2,"link":{"path":"/identity","params":{"directory":"Standard"}}},
+               {"key":"Unjoined","label":"Unjoined","count":1,"link":{"path":"/identity","params":{"directory":"Unjoined"}}}],
+             "extraAdmins":{"count":2,"link":{"path":"/identity","params":{"admins":"extra"}}},
+             "shared":{"count":1,"link":{"path":"/identity","params":{"usage":"shared"}}},
+             "assigned":{"count":3,"link":{"path":"/identity","params":{"usage":"assigned"}}}}
+            """).RootElement;
+        var view = InsightCards.Build("directoryServices", card);
+        var donut = view.Parts.OfType<DonutPart>().Single();
+        Assert.Equal(["Cloud Joined", "Domain Joined", "Standard", "Unjoined"], donut.Slices.Select(s => s.Label));
+        var trust = view.Parts.OfType<BarsPart>().Single();
+        Assert.Equal(["Trusted", "Unconfirmed", "Broken"], trust.Items.Select(t => t.Label));
+        Assert.Equal("reportmate://identity?directory=Broken", trust.Items[2].Link!.ToAppUrl());
+        Assert.Equal(Severity.Bad, trust.Items[2].Severity);
+    }
+
+    [Theory]
+    [InlineData("<ts> -<n>:<n> [ERR] Device registration failed for <guid>", "Device registration failed for <guid>")]
+    [InlineData("2026-10-22 14:03:11.123 +02:00 [ERROR] Download failed", "Download failed")]
+    [InlineData("ERROR: Manifest not found", "Manifest not found")]
+    [InlineData("Plain message with no prefix", "Plain message with no prefix")]
+    public void ALogMessageLosesItsTimestampAndLevelBeforeGrouping(string raw, string expected) =>
+        Assert.Equal(expected, InsightCards.NormalizeMessage(raw));
+
+    [Fact]
+    public void RenamedCardsAreAskedForByTheirOldNamesToo()
+    {
+        Assert.Equal(["managementToolLogs", "managementToolErrors"], InsightCards.Endpoints("managementToolLogs"));
+        Assert.Equal(["directoryServices", "directoryJoin"], InsightCards.Endpoints("directoryServices"));
+        Assert.Equal(["storage"], InsightCards.Endpoints("storage"));
+        Assert.Null(InsightCards.Build("managementToolErrors", Card("managementToolLogs")).Error);
     }
 
     [Fact]
     public void AppUsageListsTheTopAppsAndItsFilters()
     {
         var view = InsightCards.Build("appUsage", AppUsage);
+        Assert.True(view.Parts.OfType<BarsPart>().Single().Tabular);
         var apps = view.Parts.OfType<BarsPart>().Single().Items;
+        Assert.Equal("40 devices", apps[0].Detail);
         Assert.Equal(["Adobe Photoshop 2026", "Word"], apps.Select(a => a.Label));
         var link = apps[0].Link!;
         Assert.Equal(("applications", "usage/Adobe Photoshop 2026", "Shared"), (link.Section, link.Argument, link["usages"]));

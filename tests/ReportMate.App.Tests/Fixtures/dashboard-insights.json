@@ -378,7 +378,7 @@
     }
    }
   },
-  "managementToolErrors": {
+  "managementToolLogs": {
    "windowHours": 24,
    "tools": [
     {
@@ -430,6 +430,30 @@
        "level": "warning"
       }
      }
+    },
+    {
+     "tool": "mdm",
+     "name": "Intune",
+     "platform": null,
+     "devices": 9,
+     "devicesWithErrors": 9,
+     "devicesWithWarnings": 0,
+     "errorLines": 900,
+     "warningLines": 0,
+     "link": {
+      "path": "/devices",
+      "params": {
+       "tool": "mdm",
+       "level": "error"
+      }
+     },
+     "warningsLink": {
+      "path": "/devices",
+      "params": {
+       "tool": "mdm",
+       "level": "warning"
+      }
+     }
     }
    ],
    "topErrors": [
@@ -454,6 +478,57 @@
        "params": {
         "tab": "management",
         "tool": "installs",
+        "level": "error"
+       }
+      }
+     }
+    },
+    {
+     "message": "<ts> -<n>:<n> [ERR] Failed to download <n> from <path>",
+     "tool": "installs",
+     "name": "Cimian",
+     "devices": 2,
+     "lines": 30,
+     "link": {
+      "path": "/devices",
+      "params": {
+       "tool": "installs",
+       "level": "error",
+       "platform": "Windows"
+      }
+     },
+     "sampleDevice": {
+      "serialNumber": "SAMPLE2",
+      "link": {
+       "path": "/device/SAMPLE2",
+       "params": {
+        "tab": "management",
+        "tool": "installs",
+        "level": "error"
+       }
+      }
+     }
+    },
+    {
+     "message": "<ts> [ERR] Device registration failed for <guid>",
+     "tool": "mdm",
+     "name": "Intune",
+     "devices": 9,
+     "lines": 90,
+     "link": {
+      "path": "/devices",
+      "params": {
+       "tool": "mdm",
+       "level": "error"
+      }
+     },
+     "sampleDevice": {
+      "serialNumber": "SAMPLE3",
+      "link": {
+       "path": "/device/SAMPLE3",
+       "params": {
+        "tab": "management",
+        "tool": "mdm",
         "level": "error"
        }
       }
@@ -751,7 +826,7 @@
   "expiringCertificates": {
    "error": "canceling statement due to statement timeout"
   },
-  "directoryJoin": {
+  "directoryServices": {
    "views": {
     "all": {
      "devices": 10,

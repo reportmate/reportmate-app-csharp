@@ -349,6 +349,27 @@ public class DashboardCardsTests
     }
 
     [Fact]
+    public void TheIdentityReportFiltersByTheDirectoryServicesClasses()
+    {
+        var rows = Rows("""
+            [{"serialNumber":"SAMPLE1","directoryServices":{"azureAd":{"joined":true}}},
+             {"serialNumber":"SAMPLE2","directoryServices":{"activeDirectory":{"isDomainJoined":true},"azureAd":{"joined":true}},"domainTrust":{"trustStatus":"Healthy"}},
+             {"serialNumber":"SAMPLE3","directoryServices":{"activeDirectory":{"bound":true}},"domainTrust":{"trustStatus":"Broken"}},
+             {"serialNumber":"SAMPLE4","directoryServices":{"activeDirectory":{"isDomainJoined":true}}},
+             {"serialNumber":"SAMPLE5","directoryServices":{"workgroup":"WORKGROUP"}},
+             {"serialNumber":"SAMPLE6","directoryServices":{}},
+             {"serialNumber":"SAMPLE7","platformSSOUsers":{"deviceRegistered":true}}]
+            """);
+        Assert.Equal(["SAMPLE1", "SAMPLE7"], Serials("identity", "directory", "Cloud Joined", rows));
+        Assert.Equal(["SAMPLE2", "SAMPLE3", "SAMPLE4"], Serials("identity", "directory", "domain-joined", rows));
+        Assert.Equal(["SAMPLE2"], Serials("identity", "directory", "Trusted", rows));
+        Assert.Equal(["SAMPLE3"], Serials("identity", "directory", "Broken", rows));
+        Assert.Equal(["SAMPLE4"], Serials("identity", "directory", "Unconfirmed", rows));
+        Assert.Equal(["SAMPLE5"], Serials("identity", "directory", "Unjoined", rows));
+        Assert.Equal(["SAMPLE6"], Serials("identity", "directory", "Standard", rows));
+    }
+
+    [Fact]
     public void ADeviceLinkWithAToolKeepsItsParametersWhenParsed()
     {
         var link = DeepLink.Parse("reportmate://device/SAMPLE2?tab=management&tool=installs&level=error")!;
