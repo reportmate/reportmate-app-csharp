@@ -521,10 +521,21 @@ public sealed class UniformCardPanel : Panel
     public double Gap { get; set; } = 24;
     public int MaxColumns { get; set; } = 3;
 
+    /// <summary>
+    /// Spread the cards over rows of even length rather than filling the first rows
+    /// and leaving a stub: six cards with room for four go three and three, not four
+    /// and two. A wide window should read as a grid, not as a ragged last line.
+    /// </summary>
+    public bool Balanced { get; set; } = true;
+
     private int ColumnsFor(double width)
     {
+        var count = InternalChildren.Count;
         var cols = (int)Math.Floor((width + Gap) / (MinItemWidth + Gap));
-        return Math.Clamp(cols, 1, Math.Max(1, Math.Min(MaxColumns, InternalChildren.Count == 0 ? 1 : InternalChildren.Count)));
+        cols = Math.Clamp(cols, 1, Math.Max(1, Math.Min(MaxColumns, count == 0 ? 1 : count)));
+        if (!Balanced || count == 0) return cols;
+        var rows = (int)Math.Ceiling(count / (double)cols);
+        return (int)Math.Ceiling(count / (double)rows);
     }
 
     protected override Size MeasureOverride(Size availableSize)

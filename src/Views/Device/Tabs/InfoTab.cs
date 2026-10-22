@@ -16,7 +16,10 @@ public sealed class InfoTab : DeviceTab
 
     protected override UIElement Build(DeviceSnapshot s)
     {
+        // Up to all six across: a desktop-width window shows the whole overview in
+        // one or two rows instead of three columns and a band of empty margin.
         var grid = Ui.CardGrid(400, 24);
+        grid.MaxColumns = 6;
         grid.Children.Add(InventoryWidget.Build(s));
         grid.Children.Add(SystemWidget.Build(s));
         grid.Children.Add(HardwareWidget.Build(s));

@@ -1,6 +1,5 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Text.Json;
 using ReportMate.App.Services;
@@ -46,7 +45,10 @@ public sealed class ReportsPage : FleetPage
         var page = new StackPanel();
         page.Children.Add(Ui.TabHeader("Reports", "Fleet-wide views of every module", "", Accent.Blue));
 
-        var grid = new UniformGrid { Columns = 3, Margin = new Thickness(0, 20, 0, 0) };
+        // As many columns as the window has room for, rather than a fixed three.
+        var grid = Ui.CardGrid(260, 14);
+        grid.MaxColumns = 6;
+        grid.Margin = new Thickness(0, 20, 0, 0);
         // The applications drill-downs are pages of their own on the web, so they get
         // their own cards here rather than being reachable only by a link.
         var areas = ReportArea.All
@@ -67,7 +69,6 @@ public sealed class ReportsPage : FleetPage
             body.Children.Add(sub);
 
             var card = Ui.Card(body, new Thickness(18, 16, 18, 18));
-            card.Margin = new Thickness(0, 0, 14, 14);
             card.Cursor = Cursors.Hand;
             var id = area.Id;
             card.MouseLeftButtonUp += (_, _) => ReportChosen?.Invoke(id);
@@ -278,12 +279,12 @@ public sealed class ReportPage : FleetPage
 
         if (cards.Count == 0) return null;
 
-        var grid = new UniformGrid { Columns = Math.Min(3, cards.Count), Margin = new Thickness(0, 20, 0, 0) };
-        foreach (var card in cards)
-        {
-            if (card is FrameworkElement fe) fe.Margin = new Thickness(0, 0, 14, 14);
-            grid.Children.Add(card);
-        }
+        // The charts flow into as many columns as fit, so a wide window shows every
+        // distribution in a row or two above the table instead of three per line.
+        var grid = Ui.CardGrid(300, 14);
+        grid.MaxColumns = 6;
+        grid.Margin = new Thickness(0, 20, 0, 14);
+        foreach (var card in cards) grid.Children.Add(card);
         return grid;
     }
 

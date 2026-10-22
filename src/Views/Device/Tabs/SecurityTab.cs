@@ -53,6 +53,7 @@ public sealed class SecurityTab : DeviceTab
         Add(Ui.TabHeader("Security Overview", "Windows protection and compliance status", Glyph, Accent, right), 0);
 
         var grid = Ui.CardGrid(360, 20);
+        grid.MaxColumns = 6;
         grid.Children.Add(TamperingCard(sec));
         grid.Children.Add(ProtectionCard(sec));
         grid.Children.Add(DetectionCard(sec));
