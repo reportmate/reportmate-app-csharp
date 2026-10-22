@@ -425,10 +425,10 @@ public sealed class SecurityTab : DeviceTab
             var (state, days) = CertificateView.Live(c.NotAfter, now, c.Status, c.IsExpired, c.IsExpiringSoon, c.DaysUntilExpiry);
             var expired = state == CertificateStatus.Expired;
             var expiring = state == CertificateStatus.ExpiringSoon;
-            var cls = CertificateView.Classify(null);
+            var cls = CertificateView.Classify(c.Class);
             var store = c.StoreLocation is "LocalMachine" or "System" ? "System" : "User";
-            var name = CertificateView.DisplayName(null, c.CommonName, c.Subject);
-            return new CertRow(name.Length > 0 ? name : "—", CertificateView.IssuerName(null, c.Issuer), c.Thumbprint ?? "",
+            var name = CertificateView.DisplayName(c.DisplayName, c.CommonName, c.Subject);
+            return new CertRow(name.Length > 0 ? name : "—", CertificateView.IssuerName(c.IssuerName, c.Issuer), c.Thumbprint ?? "",
                 expired ? "Expired" : expiring ? (days > 0 ? $"{days}d" : "Expiring") : "Valid",
                 expired ? Tone.Error : expiring ? Tone.Warning : Tone.Success,
                 c.NotBefore is null ? "—" : Format.ShortDate(c.NotBefore), c.NotAfter is null ? "—" : Format.ShortDate(c.NotAfter),
