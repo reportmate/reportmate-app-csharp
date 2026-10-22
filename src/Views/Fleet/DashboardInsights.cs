@@ -105,10 +105,26 @@ public sealed class DashboardInsightsModel
     }
 }
 
+/// <summary>Where on the dashboard a card sits.</summary>
+public enum InsightPlacement
+{
+    /// <summary>The insight columns, in the spec's order.</summary>
+    Insights,
+
+    /// <summary>Under Fleet Status in column 1: Install Health.</summary>
+    StatusColumn,
+
+    /// <summary>In the wide events column, under Recent Events: App Usage.</summary>
+    ActivityColumn,
+}
+
 /// <summary>One insight card: its title, where its header goes, and its skeleton's shape.</summary>
+/// <param name="Hero">Its headline figures are the dashboard's largest numbers.</param>
 public sealed record InsightCard(
     string Key, string Title, string Subtitle, Accent Accent, string Glyph, DeepLink Header,
-    InsightShape Shape = InsightShape.Figures);
+    InsightShape Shape = InsightShape.Figures,
+    InsightPlacement Placement = InsightPlacement.Insights,
+    bool Hero = false);
 
 /// <summary>
 /// The twelve insight cards of the shared spec's revision 2, each answering one
@@ -127,14 +143,16 @@ public static class InsightWidgets
         new("protectionGaps", "Protection Gaps", "Devices missing a protection", Accent.Red, GlyphOf("security"), L("security"), InsightShape.Bars),
         new("unmanagedDevices", "Unmanaged Devices", "Not enrolled in MDM", Accent.Purple, GlyphOf("management"), L("management")),
         new("hardwareAtRisk", "Hardware at Risk", "Storage, memory and Intel Macs", Accent.Orange, GlyphOf("hardware"), L("hardware")),
-        new("installHealth", "Install Health", "Munki and Cimian across the fleet", Accent.Emerald, GlyphOf("installs"), L("installs")),
+        new("installHealth", "Install Health", "Munki and Cimian across the fleet", Accent.Emerald, GlyphOf("installs"), L("installs"),
+            Placement: InsightPlacement.StatusColumn, Hero: true),
         new("checkinGaps", "Check-in Gaps", "Turned away, and gone quiet", Accent.Red, "",
             DeepLink.For("events", "failures", ("hours", "24"))),
         new("osCurrency", "OS Currency", "On the latest patch for their version", Accent.Purple, GlyphOf("system"), L("system"), InsightShape.Donut),
         new("softwareRisk", "Software Risk", "Vulnerabilities and items behind", Accent.Red, GlyphOf("security"), L("security")),
         new("expiringCertificates", "Expiring Certificates", "Expiring soon, and already expired", Accent.Yellow, "", L("security")),
         new("localAdminExposure", "Local Admin Exposure", "Extra local admins and unjoined devices", Accent.Indigo, GlyphOf("identity"), L("identity")),
-        new("unusedSoftware", "Unused Software", "Installed widely, rarely used", Accent.Blue, GlyphOf("applications"), L("applications"), InsightShape.Bars),
+        new("unusedSoftware", "App Usage", "The most-used apps", Accent.Blue, GlyphOf("applications"), L("applications"), InsightShape.Bars,
+            Placement: InsightPlacement.ActivityColumn),
         new("connectivityProblems", "Connectivity Problems", "Weak Wi-Fi, poor networks and VPN", Accent.Teal, GlyphOf("network"), L("network")),
     ];
 
@@ -150,7 +168,7 @@ public static class InsightWidgets
         else
         {
             var view = InsightCards.Build(card.Key, model.Card(card.Key), PlatformFilter.Current != PlatformScope.All);
-            body = view.Error is { } error ? Failed(error) : Render(view);
+            body = view.Error is { } error ? Failed(error) : Render(view, card.Hero);
         }
 
         var chevron = Ui.Icon("", 12, Ui.Brush("TextTertiaryBrush"));
@@ -160,7 +178,7 @@ public static class InsightWidgets
 
     // ── Rendering a card's parts ─────────────────────────────────────────
 
-    private static UIElement Render(CardView view)
+    private static UIElement Render(CardView view, bool hero = false)
     {
         var body = new StackPanel();
         var first = true;
@@ -168,7 +186,7 @@ public static class InsightWidgets
         {
             var element = part switch
             {
-                FiguresPart f => Figures(f),
+                FiguresPart f => Figures(f, hero && first),
                 BarsPart b => Bars(b, first),
                 ChipsPart c => Chips(c.Items.Select(Chip).ToArray()),
                 DonutPart d => Donut(d),
@@ -182,9 +200,9 @@ public static class InsightWidgets
         return body;
     }
 
-    private static UIElement Figures(FiguresPart part)
+    private static UIElement Figures(FiguresPart part, bool hero)
     {
-        var cells = part.Items.Select(Figure).ToArray();
+        var cells = part.Items.Select(i => Figure(i, hero)).ToArray();
         return Ui.Columns(Math.Max(1, cells.Length), 10, cells);
     }
 
@@ -291,14 +309,19 @@ public static class InsightWidgets
     }
 
     /// <summary>A large number over its caption, linked when the server gave it a link.</summary>
-    private static UIElement Figure(Metric item)
+    /// <param name="hero">
+    /// Drawn larger than Fleet Status's own count: Install Health's headline figures
+    /// are the numbers the dashboard should be read for first.
+    /// </param>
+    private static UIElement Figure(Metric item, bool hero = false)
     {
         var panel = new StackPanel();
         var value = item.Shown;
+        var size = hero ? 44 : 24;
         var n = item.Count == 0 || item.Severity == Severity.Neutral
             ? Ui.Text(value, "StatValueStyle", Ui.Brush(item.Count == 0 ? "TextSecondaryBrush" : "TextPrimaryBrush"))
-            : Ui.Status(value, ToneOf(item.Severity), 24, FontWeights.SemiBold);
-        n.FontSize = 24;
+            : Ui.Status(value, ToneOf(item.Severity), size, FontWeights.SemiBold);
+        n.FontSize = size;
         n.FontWeight = FontWeights.SemiBold;
         panel.Children.Add(n);
         var c = Ui.Caption(item.Label);

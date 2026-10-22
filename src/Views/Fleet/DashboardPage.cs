@@ -32,15 +32,17 @@ public sealed class DashboardPage : FleetPage
         bars.Margin = new Thickness(0, 16, 0, 0);
         fleet.Children.Add(bars);
         Stack(status, Skeleton.Card(fleet));
-        Stack(status, Ui.Columns(2, 14, Skeleton.Card(Skeleton.Figures(1), 70), Skeleton.Card(Skeleton.Figures(1), 70)));
+        Stack(status, Skeleton.Card(Skeleton.InsightBody(InsightShape.Figures)));
         Stack(status, Skeleton.Card(Skeleton.List(6)));
 
         var activity = new StackPanel();
         Stack(activity, Skeleton.Card(Skeleton.List(10, leadingPill: true)));
+        Stack(activity, Skeleton.Card(Skeleton.Bars(6)));
         Stack(activity, Skeleton.Card(Skeleton.Bars(2)));
         Stack(activity, Ui.Columns(2, 14, Skeleton.Card(Skeleton.Bars(5)), Skeleton.Card(Skeleton.Bars(5))));
 
         var cards = InsightWidgets.All
+            .Where(card => card.Placement == InsightPlacement.Insights)
             .Select(card => (FrameworkElement)Skeleton.Card(Skeleton.InsightBody(card.Shape)))
             .ToList();
         return new DashboardLayout(status, cards, activity);
@@ -50,8 +52,12 @@ public sealed class DashboardPage : FleetPage
     {
         // The insights document and the dashboard payload are asked for together;
         // the cards fill in whenever theirs arrives.
-        _ = DashboardInsightsModel.Shared.LoadAsync();
+        var insights = DashboardInsightsModel.Shared;
+        _ = insights.LoadAsync();
+        // Two sources: the dashboard payload and the insights document.
+        Progress(insights.HasDocument ? 1 : 0, 2);
         var result = await FleetApiClient.Instance.GetDashboardAsync();
+        Progress(insights.HasDocument ? 2 : 1, 2);
         if (!result.Ok) return FleetUnavailable(result.Status, result.Detail);
 
         var data = result.Data!;
@@ -64,23 +70,8 @@ public sealed class DashboardPage : FleetPage
         page.Children.Add(Ui.TabHeader("Dashboard", "Fleet status at a glance", "", Accent.Blue,
             Ui.Caption($"{devices.Count:N0} devices reporting")));
 
-        var status = new StackPanel();
-        Stack(status, StatusWidget(devices));
-        Stack(status, Ui.Columns(2, 14,
-            CounterCard("Errors", Errors(data.InstallStats), Tone.Error, "errors"),
-            CounterCard("Warnings", Warnings(data.InstallStats), Tone.Warning, "warnings")));
-        Stack(status, NewClientsWidget(devices));
-
-        var activity = new StackPanel();
-        Stack(activity, RecentEventsWidget(data.Events));
-        Stack(activity, PlatformDistributionWidget(devices));
-        Stack(activity, Ui.Columns(2, 14,
-            OsVersionWidget(devices, "Windows"),
-            OsVersionWidget(devices, "macOS")));
-
         // The insight cards draw from the shared model and redraw in place when the
         // insights document lands, which was asked for before the dashboard payload.
-        var model = DashboardInsightsModel.Shared;
         var hosts = InsightWidgets.All.Select(card => new ContentControl
         {
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
@@ -89,8 +80,28 @@ public sealed class DashboardPage : FleetPage
             Tag = card,
         }).ToList();
         WatchInsights(hosts);
+        ContentControl Host(InsightPlacement placement) =>
+            hosts.First(h => ((InsightCard)h.Tag).Placement == placement);
 
-        var layout = new DashboardLayout(status, hosts, activity) { Margin = new Thickness(0, 20, 0, 0) };
+        // Install Health replaces the old Errors and Warnings tiles, under Fleet
+        // Status, with the dashboard's largest numbers.
+        var status = new StackPanel();
+        Stack(status, StatusWidget(devices));
+        Stack(status, Host(InsightPlacement.StatusColumn));
+        Stack(status, NewClientsWidget(devices));
+
+        // App Usage takes the wide column's room for its app names, under the events.
+        var activity = new StackPanel();
+        Stack(activity, RecentEventsWidget(data.Events));
+        Stack(activity, Host(InsightPlacement.ActivityColumn));
+        Stack(activity, PlatformDistributionWidget(devices));
+        Stack(activity, Ui.Columns(2, 14,
+            OsVersionWidget(devices, "Windows"),
+            OsVersionWidget(devices, "macOS")));
+
+        var insightCards = hosts.Where(h => ((InsightCard)h.Tag).Placement == InsightPlacement.Insights)
+            .Cast<FrameworkElement>().ToList();
+        var layout = new DashboardLayout(status, insightCards, activity) { Margin = new Thickness(0, 20, 0, 0) };
         page.Children.Add(layout);
         return page;
     }
@@ -149,40 +160,6 @@ public sealed class DashboardPage : FleetPage
         if (Count(DeviceLiveness.Archived) > 0)
             body.Children.Add(Charts.Bar("Archived", Count(DeviceLiveness.Archived), devices.Count, Tone.Neutral));
         return Linkable.LinkHeader(Ui.StatBlock("Fleet Status", "Seen in the last 24 hours", "", Accent.Green, Pad(body)), To("devices"));
-    }
-
-    /// <summary>
-    /// The counters are pre-aggregated by the API, so the platform scope picks a
-    /// different pair of fields rather than filtering rows. Cimian reports the
-    /// Windows items and Munki the macOS ones, and the API keeps them separable
-    /// precisely so this toggle can work without re-counting.
-    /// </summary>
-    private static (int Items, int Devices) Errors(InstallStats? s) => s is null ? (0, 0) : PlatformFilter.Current switch
-    {
-        PlatformScope.Windows => (s.WinErrorItems, s.WinDevicesWithErrors),
-        PlatformScope.Mac => (s.MacErrorItems, s.MacDevicesWithErrors),
-        _ => (s.TotalErrorItems, s.DevicesWithErrors),
-    };
-
-    private static (int Items, int Devices) Warnings(InstallStats? s) => s is null ? (0, 0) : PlatformFilter.Current switch
-    {
-        PlatformScope.Windows => (s.WinWarningItems, s.WinDevicesWithWarnings),
-        PlatformScope.Mac => (s.MacWarningItems, s.MacDevicesWithWarnings),
-        _ => (s.TotalWarningItems, s.DevicesWithWarnings),
-    };
-
-    private static UIElement CounterCard(string title, (int Items, int Devices) counts, Tone tone, string filter)
-    {
-        var (total, deviceCount) = counts;
-        var body = new StackPanel();
-        var n = Ui.Text(total.ToString("N0"), "StatValueStyle", Ui.StatusBrush(tone));
-        n.FontSize = 30;
-        n.FontWeight = FontWeights.SemiBold;
-        body.Children.Add(n);
-        body.Children.Add(Ui.Caption(deviceCount == 1 ? "on 1 device" : $"across {deviceCount:N0} devices"));
-        var link = To("installs", ("filter", filter));
-        return Linkable.LinkHeader(
-            Ui.StatBlock(title, null, "", tone == Tone.Error ? Accent.Red : Accent.Yellow, Pad(Linked(body, link))), link);
     }
 
     /// <summary>Devices that first reported recently, the web's NewClientsWidget.</summary>

@@ -46,28 +46,52 @@ public static class Skeleton
 
     // ── Movement ─────────────────────────────────────────────────────────
     //
-    // Every block paints with one shared brush, and the brush's opacity is what
-    // pulses: 1.0 to 0.5 and back over two seconds, the web's animate-pulse. One
-    // animation on one brush keeps every block on the page in step, and it does not
-    // depend on any element's Loaded event or template: an element built, dropped
-    // and rebuilt still shows the brush's current opacity. The animation runs only
+    // A shimmer: a lighter band sweeps left to right across every block every 1.5
+    // seconds. Every block paints with one shared gradient brush per theme colour,
+    // and all of them share one moving transform, so the whole skeleton sweeps in
+    // step and nothing depends on an element's Loaded event or template -- a block
+    // built, dropped and rebuilt picks the sweep up where it is. The sweep runs only
     // while at least one block is on screen, since a running WPF animation keeps the
     // render loop ticking, and not at all when Windows' "Animation effects" is off.
 
-    private static readonly Dictionary<Color, SolidColorBrush> SharedBrushes = new();
+    private static readonly Dictionary<Color, LinearGradientBrush> SharedBrushes = new();
+    private static readonly TranslateTransform Sweep = new(-1, 0);
     private static int _onScreen;
 
-    /// <summary>The shared, pulsing fill for the current theme's skeleton colour.</summary>
-    private static SolidColorBrush Fill()
+    /// <summary>The shared, shimmering fill for the current theme's skeleton colour.</summary>
+    private static Brush Fill()
     {
         var color = Ui.Brush("SkeletonBrush") is SolidColorBrush { } b ? b.Color : Color.FromRgb(0xE5, 0xE7, 0xEB);
-        if (!SharedBrushes.TryGetValue(color, out var brush))
+        if (SharedBrushes.TryGetValue(color, out var brush)) return brush;
+
+        var highlight = Highlight(color);
+        brush = new LinearGradientBrush
         {
-            brush = new SolidColorBrush(color);
-            SharedBrushes[color] = brush;
-            if (_onScreen > 0) Start(brush);
-        }
+            StartPoint = new Point(0, 0.5),
+            EndPoint = new Point(1, 0.5),
+            MappingMode = BrushMappingMode.RelativeToBoundingBox,
+            SpreadMethod = GradientSpreadMethod.Pad,
+            RelativeTransform = Sweep,
+            GradientStops =
+            {
+                new GradientStop(color, 0),
+                new GradientStop(color, 0.3),
+                new GradientStop(highlight, 0.5),
+                new GradientStop(color, 0.7),
+                new GradientStop(color, 1),
+            },
+        };
+        SharedBrushes[color] = brush;
         return brush;
+    }
+
+    /// <summary>The band's colour: clearly lighter on the light palette, a step up on the dark one.</summary>
+    private static Color Highlight(Color c)
+    {
+        var luminance = (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) / 255;
+        var toward = luminance > 0.5 ? 0.75 : 0.18;
+        byte Mix(byte v) => (byte)Math.Round(v + (255 - v) * toward);
+        return Color.FromRgb(Mix(c.R), Mix(c.G), Mix(c.B));
     }
 
     /// <summary>Whether Windows lets apps animate: Settings › Accessibility › Visual effects › Animation effects.</summary>
@@ -75,29 +99,22 @@ public static class Skeleton
 
     private static T Animated<T>(T element) where T : FrameworkElement
     {
-        element.Loaded += (_, _) =>
-        {
-            if (++_onScreen == 1) foreach (var b in SharedBrushes.Values) Start(b);
-        };
-        element.Unloaded += (_, _) =>
-        {
-            if (_onScreen > 0 && --_onScreen == 0) foreach (var b in SharedBrushes.Values) Stop(b);
-        };
+        element.Loaded += (_, _) => { if (++_onScreen == 1) Start(); };
+        element.Unloaded += (_, _) => { if (_onScreen > 0 && --_onScreen == 0) Stop(); };
         return element;
     }
 
-    private static void Start(SolidColorBrush brush)
+    private static void Start()
     {
-        if (!AnimationsEnabled) { brush.Opacity = 0.75; return; }
-        brush.BeginAnimation(Brush.OpacityProperty, new DoubleAnimation(1.0, 0.5, TimeSpan.FromSeconds(1))
+        if (!AnimationsEnabled) { Sweep.X = -1; return; }
+        Sweep.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(-1, 1, TimeSpan.FromSeconds(1.5))
         {
-            AutoReverse = true,
             RepeatBehavior = RepeatBehavior.Forever,
             EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
         });
     }
 
-    private static void Stop(SolidColorBrush brush) => brush.BeginAnimation(Brush.OpacityProperty, null);
+    private static void Stop() => Sweep.BeginAnimation(TranslateTransform.XProperty, null);
 
     /// <summary>
     /// Mark a skeleton for assistive technology. The movement comes from the shared
@@ -440,3 +457,91 @@ public static class Skeleton
 
 /// <summary>Which shape an insight card's skeleton takes, matching what it will draw.</summary>
 public enum InsightShape { Bars, Donut, Figures }
+
+/// <summary>
+/// A thin bar across the top of a page while it loads: determinate when the page
+/// knows how many of its sources have answered ("Loading 1 of 2"), a sweeping
+/// segment when it does not. On a refresh over data already on screen it is the
+/// only sign of work -- the page stays as it was until the new data lands.
+/// </summary>
+public sealed class LoadingStrip : Grid
+{
+    private readonly Border _fill;
+    private readonly TextBlock _label;
+    private readonly TranslateTransform _move = new();
+    private (int Done, int Total)? _progress;
+
+    public LoadingStrip()
+    {
+        VerticalAlignment = VerticalAlignment.Top;
+        IsHitTestVisible = false;
+        Visibility = Visibility.Collapsed;
+        RowDefinitions.Add(new RowDefinition { Height = new GridLength(3) });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var track = new Border { Background = Brushes.Transparent, ClipToBounds = true };
+        _fill = new Border
+        {
+            Background = Ui.Brush("StatusBlueBrush"),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            RenderTransform = _move,
+            CornerRadius = new CornerRadius(0, 2, 2, 0),
+        };
+        track.Child = _fill;
+        Children.Add(track);
+
+        _label = Ui.Caption("");
+        _label.HorizontalAlignment = HorizontalAlignment.Right;
+        _label.Margin = new Thickness(0, 4, 28, 0);
+        _label.FontSize = 11;
+        SetRow(_label, 1);
+        Children.Add(_label);
+
+        SizeChanged += (_, _) => Layout();
+        System.Windows.Automation.AutomationProperties.SetName(this, "Loading");
+    }
+
+    /// <summary>Show the strip; <paramref name="labelled"/> adds the "Loading n of m" caption.</summary>
+    public void Start(bool labelled)
+    {
+        _progress = null;
+        _label.Visibility = labelled ? Visibility.Visible : Visibility.Collapsed;
+        _label.Text = "Loading";
+        Visibility = Visibility.Visible;
+        Layout();
+    }
+
+    /// <summary>How many of the page's sources have answered.</summary>
+    public void Progress(int done, int total)
+    {
+        _progress = (Math.Clamp(done, 0, total), Math.Max(1, total));
+        _label.Text = $"Loading {Math.Min(done + 1, total)} of {total}";
+        Layout();
+    }
+
+    public void Stop()
+    {
+        _move.BeginAnimation(TranslateTransform.XProperty, null);
+        Visibility = Visibility.Collapsed;
+    }
+
+    private void Layout()
+    {
+        if (Visibility != Visibility.Visible || ActualWidth <= 0) return;
+        if (_progress is { } p)
+        {
+            _move.BeginAnimation(TranslateTransform.XProperty, null);
+            _move.X = 0;
+            // Never quite empty: a bar at zero reads as nothing happening.
+            _fill.Width = ActualWidth * Math.Max(0.06, (double)p.Done / p.Total);
+            return;
+        }
+        _fill.Width = ActualWidth * 0.3;
+        if (!Skeleton.AnimationsEnabled) { _move.X = ActualWidth * 0.35; return; }
+        _move.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(-_fill.Width, ActualWidth, TimeSpan.FromSeconds(1.4))
+        {
+            RepeatBehavior = RepeatBehavior.Forever,
+            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
+        });
+    }
+}

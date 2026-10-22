@@ -379,27 +379,22 @@ public static class InsightCards
         return new CardView(parts);
     }
 
+    /// <summary>
+    /// App Usage: the most-used apps over the window. Revision 3 drops the least-used
+    /// list, so the section's <c>leastUsed</c> is ignored if the server still sends it.
+    /// </summary>
     private static CardView UnusedSoftware(JsonElement c)
     {
-        var least = Array(c, "leastUsed")
-            .Select(a =>
-            {
-                var active = Insights.Int(a, "activeDevices");
-                var installed = Insights.Int(a, "installedDevices");
-                return new Metric(Insights.Str(a, "name"), active, ToDeepLink(Insights.Prop(a, "link")), Severity.Warning,
-                    Value: $"{active:N0} of {installed:N0}", Fraction: Insights.Number(a, "usageRate") ?? 0);
-            })
-            .ToList();
         var most = Array(c, "mostUsed")
             .Select(a => new Metric(Insights.Str(a, "name"), Insights.Number(a, "totalHours") ?? 0, ToDeepLink(Insights.Prop(a, "link")),
-                Severity.Info, Value: $"{Insights.Number(a, "totalHours") ?? 0:N0} h"))
+                Severity.Info, Value: $"{Insights.Number(a, "totalHours") ?? 0:N0} h",
+                Detail: Insights.Int(a, "activeDevices") is var d and > 0 ? $"{d:N0} devices" : null))
             .ToList();
 
         var parts = new List<CardPart>();
-        parts.Add(least.Count > 0
-            ? new BarsPart($"LEAST USED, ON {Insights.Int(c, "minInstalls")}+ DEVICES", least)
-            : new NotePart($"No app installed on {Insights.Int(c, "minInstalls")} or more devices has usage to compare."));
-        if (most.Count > 0) parts.Add(new BarsPart("MOST USED", most));
+        parts.Add(most.Count > 0
+            ? new BarsPart("MOST USED", most)
+            : new NotePart("No application usage has been reported."));
         parts.Add(new NotePart($"Over the last {Insights.Int(c, "days")} days."));
         return new CardView(parts);
     }

@@ -140,6 +140,13 @@ bulk report for the dashboard. The call has a 45-second deadline and is repeated
 every five minutes. Cards show a skeleton until the first answer, and a card the
 server could not compute shows its error with a Retry.
 
+Install Health sits under Fleet Status in the first column, with the dashboard's
+largest numbers, in place of the old Errors and Warnings tiles. App Usage sits in
+the wide column under Recent Events. Coming back to any fleet page shows what it last
+had at once and refreshes it in the background, with a thin bar across the top while
+it works. Skeletons, with a sweeping shimmer and a "Loading 1 of 2" bar, appear only
+on a page's first load. The device page always keeps every report as its own tab.
+
 Every number, bar, legend row, chip and list item opens the report that owns it
 with that filter applied, and each card header opens its report unfiltered. The
 links are the ones the server sends with each item, as web routes, so a click opens what the same link opens on the web or

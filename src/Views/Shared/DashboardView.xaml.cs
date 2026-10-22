@@ -21,6 +21,12 @@ public partial class DashboardView : UserControl
 {
     private readonly Dictionary<string, Page> _pages = new();
 
+    /// <summary>
+    /// Pages replaced by a rebuild -- a platform change, a link -- kept until their
+    /// successor is made, so it can open on what they were showing.
+    /// </summary>
+    private readonly Dictionary<string, Page> _replaced = new();
+
     private bool _reportsInline;
     private string _current = "dashboard";
     private DashboardChrome _chrome = DashboardChrome.Standard;
@@ -113,10 +119,15 @@ public partial class DashboardView : UserControl
     /// Reports sit inline as their own tabs when the header has the room for them
     /// beside its other controls, and collapse into one Reports tab when it does not.
     /// </summary>
-    private void BuildTabs()
+    private void BuildTabs(bool rebuild = false)
     {
-        var inline = ReportsFitInline();
-        if (TabBar.Children.Count > 0 && inline == _reportsInline) { SyncChecked(); return; }
+        // On the device page the reports always sit inline, as on the web: if the
+        // header is short of room the search field gives way instead.
+        var inline = _current == "device" || ReportsFitInline();
+        SearchHost.Visibility = _chrome.ShowsSearchField && !(_current == "device" && _searchYielded)
+            ? Visibility.Visible : Visibility.Collapsed;
+        SearchColumn.MinWidth = SearchHost.Visibility == Visibility.Visible ? 140 : 0;
+        if (!rebuild && TabBar.Children.Count > 0 && inline == _reportsInline) { SyncChecked(); return; }
         _reportsInline = inline;
 
         TabBar.Children.Clear();
@@ -162,8 +173,16 @@ public partial class DashboardView : UserControl
     /// the minimise, maximise and close buttons, because the fit was judged on widths
     /// measured before the tabs had been laid out.
     /// </summary>
+    /// <summary>The device page gave the search field's room to its report tabs.</summary>
+    private bool _searchYielded;
+
     private void FoldIfOverflowing()
     {
+        if (_current != "device" && _searchYielded)
+        {
+            _searchYielded = false;
+            BuildTabs();
+        }
         if (!_reportsInline || HeaderGrid.ActualWidth <= 0 || TrailingItems.ActualWidth <= 0) return;
         double right;
         try
@@ -177,6 +196,14 @@ public partial class DashboardView : UserControl
         }
         var overflow = right - HeaderGrid.ActualWidth;
         if (overflow <= 0.5) return;
+        if (_current == "device")
+        {
+            // Never fold the reports here; take the search field out instead.
+            if (_searchYielded) return;
+            _searchYielded = true;
+            BuildTabs();
+            return;
+        }
         // Remember the shortfall as part of the tabs' width, so they stay folded
         // until the window is wide enough to take them back without overflowing.
         _inlineTabsWidth = Math.Max(_inlineTabsWidth, TabBarFrame.ActualWidth) + overflow + FitSlack;
@@ -272,8 +299,15 @@ public partial class DashboardView : UserControl
     {
         // Pages are cached, so a change to what they should be showing has to empty
         // the cache or the change is invisible until the app restarts.
-        if (force) _pages.Clear();
+        if (force)
+        {
+            foreach (var (key, old) in _pages) _replaced[key] = old;
+            _pages.Clear();
+        }
+        var wasDevice = _current == "device";
         _current = tag;
+        // The device page always keeps the full row of report tabs.
+        if (wasDevice != (tag == "device")) BuildTabs(rebuild: true);
         var page = GetOrCreatePage(tag);
         // A Frame hands its pages straight to the application's resources, so when
         // the dashboard carries its own, each page has to be given them.
@@ -362,7 +396,7 @@ public partial class DashboardView : UserControl
     /// </summary>
     private void ShowFresh(string tag)
     {
-        _pages.Remove(tag);
+        if (_pages.Remove(tag, out var old)) _replaced[tag] = old;
         Navigate(tag);
         SyncChecked();
     }
@@ -421,6 +455,10 @@ public partial class DashboardView : UserControl
                 _ => new DashboardPage(),
             };
         }
+
+        // A rebuilt page opens on what its predecessor showed and refreshes over it.
+        if (_replaced.Remove(tag, out var previous) && page is FleetPage fresh && previous is FleetPage stale)
+            fresh.Adopt(stale);
 
         _pages[tag] = page;
         return page;

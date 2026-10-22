@@ -106,13 +106,14 @@ public class InsightCardsTests
     }
 
     [Fact]
-    public void UnusedSoftwareListsShelfwareFirstWithItsUsageRate()
+    public void AppUsageListsOnlyTheMostUsedApps()
     {
         var bars = View("unusedSoftware").Parts.OfType<BarsPart>().ToList();
-        Assert.StartsWith("LEAST USED", bars[0].Heading);
-        Assert.Equal("2 of 40", bars[0].Items[0].Shown);
-        Assert.Equal(0.05, bars[0].Items[0].Fraction);
-        Assert.Equal("MOST USED", bars[1].Heading);
+        Assert.Single(bars);
+        Assert.Equal("MOST USED", bars[0].Heading);
+        Assert.Equal("Adobe Photoshop 2026", bars[0].Items[0].Label);
+        Assert.EndsWith(" h", bars[0].Items[0].Shown);
+        Assert.Equal("40 devices", bars[0].Items[0].Detail);
     }
 
     [Fact]

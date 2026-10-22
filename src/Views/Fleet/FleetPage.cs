@@ -19,19 +19,51 @@ public abstract class FleetPage : Page
         Padding = new Thickness(28, 22, 28, 32),
     };
 
+    private readonly LoadingStrip _strip = new();
     private DispatcherTimerHolder? _timer;
     private bool _loading;
+    private bool _skeleton;
+    private DateTime? _loadedAt;
+
+    /// <summary>
+    /// How old a page's data may be when it is shown again before it refreshes in
+    /// the background. Coming back to a page shows what it had at once either way.
+    /// </summary>
+    private static readonly TimeSpan RefreshOnReturn = TimeSpan.FromMinutes(1);
 
     protected FleetPage()
     {
-        Content = _scroll;
+        var root = new Grid();
+        root.Children.Add(_scroll);
+        root.Children.Add(_strip);
+        Content = root;
         Loaded += async (_, _) =>
         {
-            if (_scroll.Content is null) await ReloadAsync();
             _timer ??= DispatcherTimerHolder.Every(TimeSpan.FromMinutes(5), async () => await ReloadAsync());
+            if (_scroll.Content is null) await ReloadAsync();
+            else if (_loadedAt is null || DateTime.UtcNow - _loadedAt > RefreshOnReturn) await ReloadAsync();
         };
         Unloaded += (_, _) => { _timer?.Stop(); _timer = null; };
     }
+
+    /// <summary>
+    /// Take over what the page this one replaces was showing, so a page rebuilt for
+    /// a new link or platform scope opens on the last data, marked as updating,
+    /// rather than on a skeleton. Skeletons are for the very first load only.
+    /// </summary>
+    public void Adopt(FleetPage previous)
+    {
+        if (_scroll.Content is not null || previous._skeleton || previous._scroll.Content is not UIElement body) return;
+        previous._scroll.Content = null;
+        _scroll.Content = body;
+        _scroll.ScrollToVerticalOffset(previous._scroll.VerticalOffset);
+    }
+
+    /// <summary>
+    /// How many of the page's sources have answered, for the loading strip's
+    /// determinate bar. Pages that do not say get the indeterminate sweep.
+    /// </summary>
+    protected void Progress(int done, int total) => _strip.Progress(done, total);
 
     /// <summary>Fetch and render. Implementations return the page body.</summary>
     protected abstract Task<UIElement> BuildAsync();
@@ -60,17 +92,28 @@ public abstract class FleetPage : Page
         try
         {
             Link ??= Views.Shared.DashboardView.TakePendingLink();
-            if (_scroll.Content is null) _scroll.Content = Loading();
+            // The first load draws a skeleton; any later one leaves the page as it
+            // was and shows only the strip until the new body is ready.
+            if (_scroll.Content is null)
+            {
+                _scroll.Content = Loading();
+                _skeleton = true;
+            }
+            _strip.Start(labelled: _skeleton);
             var body = await BuildAsync();
             _scroll.Content = body;
+            _skeleton = false;
+            _loadedAt = DateTime.UtcNow;
         }
         catch (Exception ex)
         {
             _scroll.Content = Ui.Card(Ui.EmptyState($"This page could not be built: {ex.Message}"));
+            _skeleton = false;
         }
         finally
         {
             _loading = false;
+            _strip.Stop();
         }
     }
 
