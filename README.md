@@ -7,6 +7,8 @@ for the machine it is running on, built from that machine's local cache.
 It is a reader. It renders what the ReportMate runner collects and what the API
 serves, and changes nothing on the device.
 
+Development guide: [wiki](wiki/README.md)
+
 ## Layout
 
 | Path | What it is |
