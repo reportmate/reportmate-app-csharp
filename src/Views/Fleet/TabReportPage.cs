@@ -72,17 +72,19 @@ public sealed class TabReportPage : FleetPage
     /// <summary>The link that reopens exactly this view, for the platform toggle to carry across.</summary>
     public DeepLink CurrentLink() => _query.Link(_module, _tab);
 
+    // Forced, so a choice made while the report is still loading starts over with it
+    // rather than being dropped; only the newest load draws the page.
     private void Apply(TabQuery next)
     {
         _query = next;
-        _ = ReloadAsync();
+        _ = ReloadAsync(force: true);
     }
 
     private void Refresh()
     {
         _catalogKey = null;
         _dataKey = null;
-        _ = ReloadAsync();
+        _ = ReloadAsync(force: true);
     }
 
     protected override async Task<UIElement> BuildAsync()
