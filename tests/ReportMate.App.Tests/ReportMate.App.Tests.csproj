@@ -27,6 +27,8 @@
     <Compile Include="..\..\src\Views\Fleet\ReportFilters.cs" Link="ReportFilters.cs" />
     <Compile Include="..\..\src\Views\Fleet\InsightCards.cs" Link="InsightCards.cs" />
     <Compile Include="..\..\src\Views\Fleet\ManagementLogsReport.cs" Link="ManagementLogsReport.cs" />
+    <!-- The module tab reports: definitions, loading, sorting and export, with no UI type. -->
+    <Compile Include="..\..\src\Views\Fleet\Tabs\*.cs" Link="Tabs\%(Filename)%(Extension)" />
     <Compile Include="..\..\src\Views\Fleet\ApplicationsReport.cs" Link="ApplicationsReport.cs" />
     <Compile Include="..\..\src\Services\Csv.cs" Link="Csv.cs" />
     <Compile Include="..\..\src\Views\Fleet\ColumnDeal.cs" Link="ColumnDeal.cs" />

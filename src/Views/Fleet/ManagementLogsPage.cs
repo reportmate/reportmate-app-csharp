@@ -23,20 +23,9 @@ public sealed class ManagementLogsPage : FleetPage
 
     protected override (string, string, Accent)? Heading => ("Management Tools Logs", LogsSubtitle, Area.Accent);
 
-    /// <summary>
-    /// The Management report's header: in the title's place, a switch between its two
-    /// views, with the subtitle of whichever one is showing.
-    /// </summary>
-    internal static Grid Header(FrameworkElement from, bool logs, string glyph, UIElement? right = null)
-    {
-        var views = Ui.Segmented([("service", "Device Management Service"), ("logs", "Management Tools Logs")],
-            logs ? "logs" : "service", key =>
-            {
-                if (key == "logs" && !logs) DashboardView.Follow(from, InsightCards.ToolsLogsLink());
-                else if (key == "service" && logs) DashboardView.Follow(from, DeepLink.For("management"));
-            });
-        return Ui.TabHeader(views, logs ? LogsSubtitle : Area.Subtitle, glyph, Area.Accent, right);
-    }
+    /// <summary>The Management report's header: its title switch, on whichever view is showing.</summary>
+    internal static Grid Header(FrameworkElement from, bool logs, string glyph, UIElement? right = null) =>
+        ModuleSwitch.Header(from, "management", logs ? "logs" : "enrollment", right);
 
     protected override async Task<UIElement> BuildAsync()
     {

@@ -143,7 +143,9 @@ public sealed record DeepLink(string Section, string? Argument, NameValueCollect
         var fragment = "";
         if (tab is not null)
         {
-            if (tabInFragment) fragment = "#" + Uri.EscapeDataString(Query[tab]!);
+            // Only the device page reads its tab from the fragment. A module report's
+            // view is a query parameter on the web, /system?tab=services, so it stays one.
+            if (tabInFragment && Section is "device" or "this-device") fragment = "#" + Uri.EscapeDataString(Query[tab]!);
             else rest.Insert(0, Pair(tab));
         }
 
