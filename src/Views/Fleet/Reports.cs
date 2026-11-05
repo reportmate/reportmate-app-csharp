@@ -153,9 +153,15 @@ public sealed class ReportPage : FleetPage
         // Management's title is a switch between its two views: the device management
         // service, and the management tools' own logs.
         var right = WithActiveFilters(count);
-        page.Children.Add(_area.Id == "management"
-            ? ManagementLogsPage.Header(this, logs: false, "", right)
+        // The module reports with more than one view title themselves with the switch
+        // between them, as the web does: System's Services and Updates, Management's
+        // profiles and tools logs, Security's vulnerabilities, Identity's posture.
+        page.Children.Add(ModuleTabs.All.ContainsKey(_area.Id)
+            ? ModuleSwitch.Header(this, _area.Id, ModuleTabs.DefaultKey(_area.Id), right)
             : Ui.TabHeader(_area.Title, _area.Subtitle, "", _area.Accent, right));
+
+        // Enrollment health problem filters, on the Device Management Service report.
+        if (spec.Module == "management") page.Children.Add(EnrollmentHealthBar());
 
         if (rows.Count == 0)
         {
@@ -223,6 +229,13 @@ public sealed class ReportPage : FleetPage
             if (Filter(key) is { } value)
                 rows = ReportFilters.Apply(spec.Module, key, value, population, rows) ?? rows;
 
+        // Enrollment health: a device that did not report a value never matches a problem filter.
+        if (spec.Module == "management" && EnrollmentHealth.Filters.From(Filter) is { Active: > 0 } health)
+        {
+            var now = DateTime.UtcNow;
+            rows = rows.Where(r => EnrollmentHealth.Matches(r, health, now)).ToList();
+        }
+
         foreach (var filter in spec.Filters)
         {
             if (ruled.Contains(filter.Key, StringComparer.OrdinalIgnoreCase)) continue;
@@ -241,6 +254,51 @@ public sealed class ReportPage : FleetPage
                 .ToList();
         }
         return rows;
+    }
+
+    /// <summary>
+    /// The web's enrollment health filters: not compliant, MDM sync older than a number
+    /// of days, MDM certificate expiring within 30 days. Each one is a link, so the
+    /// filtered report can be shared and reopened like any other.
+    /// </summary>
+    private UIElement EnrollmentHealthBar()
+    {
+        var current = EnrollmentHealth.Filters.From(Filter);
+        void Go(EnrollmentHealth.Filters next)
+        {
+            var kept = Link?.Query.AllKeys
+                .Where(k => k is not null && !EnrollmentHealth.Params.Contains(k))
+                .Select(k => (k!, Link.Query[k])) ?? [];
+            DashboardView.Follow(this, DeepLink.For(_area.Id, null, kept.Concat(next.Pairs()).ToArray()));
+        }
+        Border Chip(string text, bool active, Action click)
+        {
+            var chip = Ui.FilterChip(text, 0, Tone.Info, active);
+            if (chip.Child is StackPanel { Children.Count: > 1 } content) content.Children.RemoveAt(1);
+            chip.MouseLeftButtonUp += (_, _) => click();
+            return chip;
+        }
+        var bar = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+        var label = Ui.Eyebrow("ENROLLMENT HEALTH");
+        label.Margin = new Thickness(0, 0, 14, 0);
+        label.VerticalAlignment = VerticalAlignment.Center;
+        bar.Children.Add(label);
+        bar.Children.Add(Chip("Not compliant", current.NonCompliant, () => Go(current with { NonCompliant = !current.NonCompliant })));
+        var sync = Ui.Caption("MDM sync older than");
+        sync.Margin = new Thickness(10, 0, 8, 0);
+        sync.VerticalAlignment = VerticalAlignment.Center;
+        bar.Children.Add(sync);
+        foreach (var days in EnrollmentHealth.SyncAgeChoices.Append(current.SyncOlderThanDays ?? 1).Distinct().Order())
+            bar.Children.Add(Chip(days == 1 ? "1 day" : $"{days} days", current.SyncOlderThanDays == days,
+                () => Go(current with { SyncOlderThanDays = current.SyncOlderThanDays == days ? null : days })));
+        bar.Children.Add(Chip($"MDM certificate expiring within {current.CertExpiringDays ?? EnrollmentHealth.CertExpiryDays} days",
+            current.CertExpiringDays is not null,
+            () => Go(current with { CertExpiringDays = current.CertExpiringDays is null ? EnrollmentHealth.CertExpiryDays : null })));
+        var note = Ui.Caption("Devices that did not report a value are excluded from these filters and shown as Unknown.");
+        note.Margin = new Thickness(10, 0, 0, 0);
+        note.VerticalAlignment = VerticalAlignment.Center;
+        bar.Children.Add(note);
+        return bar;
     }
 
     /// <summary>
@@ -350,7 +408,7 @@ public sealed class ReportPage : FleetPage
     {
         var headers = spec.Columns.Select(c => c.Header).ToList();
         var data = rows.Select(row => new ReportRow(
-            headers.Zip(spec.Columns.Select(c => c.Field.Read(row))).ToDictionary(p => p.First, p => p.Second)))
+            headers.Zip(spec.Columns.Select(c => c.Field.Read(row))).ToDictionary(p => p.First, p => p.Second)) { Source = row })
             .ToList();
 
         var columns = spec.Columns
@@ -370,6 +428,12 @@ public sealed class ReportPage : FleetPage
             .WithQuery(query)
             // Every report row belongs to a device; clicking it opens that device.
             .WithRowLink(r => r["Serial"] is { Length: > 0 } serial ? DeepLink.For("device", serial) : null)
+            // The columns on screen; the management report adds every enrollment health field, as the web export does.
+            .WithCsv($"{spec.Module}-report-{DateTime.Now:yyyy-MM-dd}.csv",
+                spec.Module == "management" ? [.. headers, .. EnrollmentHealth.CsvHeaders] : [.. headers],
+                r => spec.Module == "management" && r.Source is { } source
+                    ? headers.Select(h => (string?)r[h]).Concat(EnrollmentHealth.CsvValues(source))
+                    : headers.Select(h => (string?)r[h]))
             .Build();
         table.Margin = new Thickness(0, 6, 0, 0);
         return table;
@@ -456,6 +520,9 @@ public sealed class ReportRow
         _values = values;
         _haystack = string.Join(" ", values.Values);
     }
+
+    /// <summary>The row the values were read from, for an export that carries more than the columns.</summary>
+    public JsonElement? Source { get; init; }
 
     /// <summary>Indexer so a column can bind with the path "[Header]".</summary>
     public string this[string header] => _values.GetValueOrDefault(header) ?? "";

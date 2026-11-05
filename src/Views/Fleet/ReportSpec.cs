@@ -324,6 +324,12 @@ public sealed record ReportSpec(
                 new("Status", new("Status", "enrollmentStatus"), 140),
                 new("Bootstrap", new("Bootstrap", "", Derive: Management.BootstrapMethod), 140),
                 new("Tenant", new("Tenant", "tenantName"), 170),
+                // Enrollment health: what the device did not report reads Unknown, and an
+                // Apple MDM flag reads Not applicable off macOS.
+                new("Compliance", new("Compliance", "", Derive: EnrollmentHealth.Compliance), 120),
+                new("Last MDM Sync", new("Last MDM Sync", "", Derive: r => EnrollmentHealth.LastSync(r, DateTime.UtcNow)), 120),
+                new("MDM Certificate", new("MDM Certificate", "", Derive: r => EnrollmentHealth.Certificate(r, DateTime.UtcNow)), 150),
+                new("Apple MDM", new("Apple MDM", "", Derive: EnrollmentHealth.AppleMdm), 260),
             ]),
 
         ["applications"] = new("applications",

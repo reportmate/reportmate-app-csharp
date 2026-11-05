@@ -484,8 +484,10 @@ public sealed class FilteredTable<T> : ContentControl
             Filter = "CSV files (*.csv)|*.csv",
         };
         if (dialog.ShowDialog() != true) return;
+        // The rows in the order the grid shows them, so a column sort carries into the file.
+        var rows = _body.Content is DataGrid grid ? grid.Items.OfType<T>().ToList() : _visible;
         System.IO.File.WriteAllText(dialog.FileName,
-            ReportMate.App.Services.Csv.Document(csv.Headers, _visible.Select(csv.Row)), new System.Text.UTF8Encoding(true));
+            ReportMate.App.Services.Csv.Document(csv.Headers, rows.Select(csv.Row)), new System.Text.UTF8Encoding(true));
     }
 
     public FilteredTable<T> WithQuery(string? query)

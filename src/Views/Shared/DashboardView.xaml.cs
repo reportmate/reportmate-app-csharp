@@ -315,15 +315,19 @@ public partial class DashboardView : UserControl
         _syncing = true;
         try
         {
-            // Management Tools Logs is the Management report's second view, under its tab.
-            var tab = _current == "management-logs" ? "report:management" : _current;
+            // A module report's other views -- Management Tools Logs, System's Services,
+            // Security's Vulnerabilities -- sit under that report's tab.
+            var tab = _current == "management-logs" ? "report:management"
+                : _current.StartsWith("tab:", StringComparison.Ordinal) ? "report:" + _current.Split(':')[1]
+                : _current;
             foreach (var child in TabBar.Children)
                 if (child is RadioButton rb && rb.Tag?.ToString() == tab) { rb.IsChecked = true; return; }
 
             // The current page has no tab at this width (a report while collapsed):
             // show Reports as the active section instead of leaving nothing checked.
             if (_current.StartsWith("report:", StringComparison.Ordinal)
-                || _current is "failures" or "coverage" or "management-logs" || _current.StartsWith("usage:", StringComparison.Ordinal))
+                || _current is "failures" or "coverage" or "management-logs" || _current.StartsWith("usage:", StringComparison.Ordinal)
+                || _current.StartsWith("tab:", StringComparison.Ordinal))
                 foreach (var child in TabBar.Children)
                     if (child is RadioButton rb && rb.Tag?.ToString() == "reports") { rb.IsChecked = true; return; }
 
@@ -424,10 +428,18 @@ public partial class DashboardView : UserControl
                 ShowFresh("report:applications");
                 return;
 
-            // management/logs is the Management report's second view, Management Tools Logs.
-            case "management" when link.Argument is { } mgmt && mgmt.Equals("logs", StringComparison.OrdinalIgnoreCase):
+            // management/logs, or the web's /management?tab=logs, is the Management
+            // report's Management Tools Logs view.
+            case "management" when ModuleTabs.TabOf(link) == "logs":
                 PendingLink = link;
                 ShowFresh("management-logs");
+                return;
+
+            // The other views of a module report's title switch -- /system?tab=services,
+            // /security?tab=vulnerabilities and the rest -- are pages of their own.
+            case "system" or "management" or "security" or "identity" when ModuleTabs.TabOf(link) is { } tab:
+                PendingLink = link;
+                ShowFresh($"tab:{link.Section}:{tab}");
                 return;
 
             // events/failures is a page of its own on the web, the same shape as
@@ -515,6 +527,15 @@ public partial class DashboardView : UserControl
             page = new AppUsagePage(split > 0 ? rest[(split + 1)..] : rest, days);
         }
         else if (tag == "management-logs") page = new ManagementLogsPage();
+        else if (tag.StartsWith("tab:", StringComparison.Ordinal))
+        {
+            // tab:<module>:<tab>. Rebuilt for the platform toggle with no link of its own,
+            // the report keeps the selections it was showing rather than starting over.
+            var parts = tag.Split(':');
+            var carried = PendingLink is null && _replaced.TryGetValue(tag, out var shownTab) && shownTab is TabReportPage tabPage
+                ? tabPage.CurrentLink() : null;
+            page = new TabReportPage(parts[1], parts[2], carried);
+        }
         else if (tag.StartsWith("device:", StringComparison.Ordinal)) page = new DevicePage(tag["device:".Length..]);
         else if (tag == "coverage") page = new CoveragePage();
         else if (tag == "failures") page = new FailuresPage();
