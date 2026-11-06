@@ -7,7 +7,7 @@ using System.Text.Json;
 
 namespace ReportMate.App.Views.Fleet;
 
-/// <summary>System › Services, Updates, Background Items and Extensions.</summary>
+/// <summary>System › Services, Updates, Background and Extensions.</summary>
 public static partial class TabReports
 {
     // ── Services ─────────────────────────────────────────────────────────
@@ -367,7 +367,7 @@ public static partial class TabReports
         },
     };
 
-    // ── Background Items and Extensions ──────────────────────────────────
+    // ── Background and Extensions ────────────────────────────────────────
 
     private static string ItemPlatform(string platform) => platform switch { "Windows" => "windows", "macOS" => "macos", _ => "all" };
 
@@ -461,7 +461,7 @@ public static partial class TabReports
     private static TabChoice Labelled(string param, string label, string summaryKey, IEnumerable<KeyValuePair<string, string>> labels) =>
         new(param, label) { SummaryKey = summaryKey, Options = labels.Select(kv => new TabOption(kv.Key, kv.Value)).ToList() };
 
-    public static readonly TabReportDef Background = Items("background", "Background Items", "/api/v1/system/background",
+    public static readonly TabReportDef Background = Items("background", "Background", "/api/v1/system/background",
         "Scheduled tasks, launchd jobs and Open at Login items across devices.",
         "Services covers Windows services and the launchd jobs macOS reports as loaded, with running state. This tab covers what Services does not: launchd jobs configured on disk, Open at Login items and Windows scheduled tasks. Rows list reported items only; a device that does not list an item may not have reported it.",
         "Choose scheduled tasks, launchd jobs or Open at Login items from Selections, or show failed scheduled tasks across the fleet.",

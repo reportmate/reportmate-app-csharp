@@ -19,10 +19,10 @@ public static class ModuleTabs
     {
         ["system"] =
         [
-            new("os", "Operating System Information", "Operating systems and updates"),
+            new("os", "System", "Operating systems and updates"),
             new("services", "Services", "Service coverage and installed versions across devices."),
             new("updates", "Updates", "Pending and installed operating system updates across devices."),
-            new("background", "Background Items", "Scheduled tasks, launchd jobs and Open at Login items across devices."),
+            new("background", "Background", "Scheduled tasks, launchd jobs and Open at Login items across devices."),
             new("extensions", "Extensions", "System extensions, kernel extensions and privileged helper tools across Macs."),
         ],
         ["management"] =
