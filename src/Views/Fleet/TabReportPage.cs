@@ -28,7 +28,7 @@ public static class ModuleSwitch
 }
 
 /// <summary>
-/// One module tab report -- Services, Updates, Background Items, Extensions,
+/// One module tab report -- Services, Updates, Background, Extensions,
 /// Configuration Profiles, Managed Preferences, Vulnerabilities, Threat Detections,
 /// Sign-in &amp; Recovery Posture -- drawn from its <see cref="TabReportDef"/>. The
 /// selections come from the report's <c>/filters</c> catalog, so a reader picks from
