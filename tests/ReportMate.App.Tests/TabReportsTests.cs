@@ -72,6 +72,8 @@ public class TabReportsTests
     [InlineData("https://host.example.org/management?tab=preferences", "preferences")]
     [InlineData("https://host.example.org/security?tab=vulnerabilities&view=devices", "vulnerabilities")]
     [InlineData("https://host.example.org/identity?tab=posture", "posture")]
+    [InlineData("https://host.example.org/identity?tab=admins", "admins")]
+    [InlineData("reportmate://identity?tab=admins&platform=mac", "admins")]
     public void A_link_names_its_module_tab(string url, string tab) =>
         Assert.Equal(tab, ModuleTabs.TabOf(DeepLink.Parse(url)!));
 
@@ -82,6 +84,20 @@ public class TabReportsTests
     [InlineData("https://host.example.org/hardware?tab=services")]
     public void A_link_to_the_module_report_itself_names_no_tab(string url) =>
         Assert.Null(ModuleTabs.TabOf(DeepLink.Parse(url)!));
+
+    [Fact]
+    public async Task Admins_read_the_unpaginated_identity_array()
+    {
+        var report = TabReports.Admins;
+        var result = await report.LoadAsync(new TabQuery(), "all", path =>
+        {
+            Assert.Equal("/api/v1/identity?platform=all", path);
+            return Task.FromResult(new TabFetch(true, 200, null, J("[]")));
+        });
+        Assert.True(result.Ok);
+        Assert.Empty(result.Data!.Rows);
+        Assert.Equal(3, TabReports.AdminWidgets(new TabContext(new TabQuery(), "all", Data: result.Data)).Count);
+    }
 
     [Fact]
     public void A_link_reopens_its_own_selections()

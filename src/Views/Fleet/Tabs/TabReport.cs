@@ -159,6 +159,7 @@ public sealed class TabReportDef
 
     public string RowsProperty { get; init; } = "rows";
     public bool Paged { get; init; } = true;
+    public Func<JsonElement, string, IEnumerable<JsonElement>>? ReadArrayRows { get; init; }
     public int PageSize { get; init; } = 1000;
     public int? MaxRows { get; init; }
 
@@ -253,10 +254,13 @@ public sealed class TabReportDef
         do
         {
             var response = await fetch(Path(query, platform, rows.Count));
-            if (!response.Ok || response.Body is not { ValueKind: JsonValueKind.Object } body)
+            if (!response.Ok || response.Body is not { } body)
                 return response.Status == 404
                     ? new TabLoad(null, NotFoundText, NotFound: true)
                     : new TabLoad(null, response.Error ?? "The report could not be loaded. Please retry.");
+
+            if (!Paged && ReadArrayRows is { } read && body.ValueKind == JsonValueKind.Array)
+                return new TabLoad(new TabReportData(body, read(body, platform)), null);
 
             if (TabJson.Prop(body, RowsProperty) is not { ValueKind: JsonValueKind.Array } page)
                 return new TabLoad(null, "The report could not be read: it has no rows.");

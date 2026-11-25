@@ -42,6 +42,7 @@ public static class ModuleTabs
         [
             new("users", "Identity & Users", "Accounts, groups and sign-in"),
             new("posture", "Sign-in & Recovery Posture", "Sign-in and recovery posture each device last reported."),
+            new("admins", "Admins Report", "Local administrator accounts reported by devices."),
         ],
     };
 
@@ -85,6 +86,7 @@ public static partial class TabReports
         ("security", "vulnerabilities") => query["view"] == "devices" ? VulnerabilityRows : VulnerabilitySummary,
         ("security", "threats") => Threats,
         ("identity", "posture") => Posture,
+        ("identity", "admins") => Admins,
         _ => null,
     };
 
