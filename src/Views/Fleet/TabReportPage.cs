@@ -44,6 +44,7 @@ public sealed class TabReportPage : FleetPage
     private TabQuery _query = new();
     private bool _seeded;
     private bool _selectionsOpen;
+    private bool _widgetsOpen = true;
 
     private string? _catalogKey;
     private JsonElement? _catalog;
@@ -70,7 +71,9 @@ public sealed class TabReportPage : FleetPage
     protected override (string, string, Accent)? Heading => (Tab.Label, Tab.Subtitle, ReportArea.ById(_module)!.Accent);
 
     /// <summary>The link that reopens exactly this view, for the platform toggle to carry across.</summary>
-    public DeepLink CurrentLink() => _query.Link(_module, _tab);
+    public DeepLink CurrentLink() => _module == "identity" && _tab == "admins"
+        ? _query.With(("platform", Platform switch { "Windows" => "win", "macOS" => "mac", _ => "all" })).Link(_module, _tab)
+        : _query.Link(_module, _tab);
 
     // Forced, so a choice made while the report is still loading starts over with it
     // rather than being dropped; only the newest load draws the page.
@@ -100,11 +103,24 @@ public sealed class TabReportPage : FleetPage
         var page = new StackPanel();
 
         var copy = Ui.IconButton("", "Copy link", (_, _) =>
-            ClipboardHelper.Copy(CurrentLink().ToHandoffUrl(ConfigManager.Instance.WebDashboardUrl)),
+        {
+            var link = CurrentLink();
+            var dashboard = ConfigManager.Instance.WebDashboardUrl;
+            ClipboardHelper.Copy(_module == "identity" && _tab == "admins" ? link.ToWebUrl(dashboard) : link.ToHandoffUrl(dashboard));
+        },
             "Copy a shareable link to this exact report");
         var refresh = Ui.IconButton("", "Refresh", (_, _) => Refresh());
         refresh.Margin = new Thickness(8, 0, 0, 0);
-        page.Children.Add(ModuleSwitch.Header(this, _module, _tab, Ui.HStack(copy, refresh)));
+        var controls = Ui.HStack(copy, refresh);
+        if (_module == "identity" && _tab == "admins")
+        {
+            var noAdmins = Ui.IconButton("", "No Admin Users", (_, _) =>
+                DashboardView.Follow(this, DeepLink.For("identity", null, ("admins", "0"))),
+                "Show devices with no reported administrators");
+            noAdmins.Margin = new Thickness(0, 0, 8, 0);
+            controls.Children.Insert(0, noAdmins);
+        }
+        page.Children.Add(ModuleSwitch.Header(this, _module, _tab, controls));
 
         if (def.NotApplicableOn == platform)
         {
@@ -193,11 +209,51 @@ public sealed class TabReportPage : FleetPage
             return page;
         }
 
+        if (_module == "identity" && _tab == "admins")
+            page.Children.Add(AdminWidgets(context));
+
         var rows = def.ViewRows(context);
         page.Children.Add(ResultBar(def, context, rows.Count));
         page.Children.Add(Table(def, context, rows));
         page.Children.Add(Footnote(def));
         return page;
+    }
+
+    private UIElement AdminWidgets(TabContext context)
+    {
+        var cards = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3 };
+        foreach (var widget in TabReports.AdminWidgets(context))
+        {
+            var entries = new StackPanel();
+            foreach (var (label, count) in widget.Entries)
+            {
+                var line = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
+                var value = Ui.Caption(count.ToString("N0"));
+                DockPanel.SetDock(value, Dock.Right);
+                value.Margin = new Thickness(10, 0, 0, 0);
+                line.Children.Add(value);
+                if (widget.Title == "Administrator Names")
+                {
+                    var active = string.Equals(label, _query["admin"], StringComparison.OrdinalIgnoreCase);
+                    line.Children.Add(Chip(label, active, () => Apply(_query.With(("admin", active ? null : label)))));
+                }
+                else line.Children.Add(Ui.Caption(label));
+                entries.Children.Add(line);
+            }
+            if (entries.Children.Count == 0) entries.Children.Add(Ui.Caption("No admin accounts found"));
+            var content = new StackPanel();
+            var title = Ui.Text(widget.Title, "TitleTextStyle");
+            title.Margin = new Thickness(0, 0, 0, 8);
+            content.Children.Add(title);
+            content.Children.Add(new ScrollViewer { Content = entries, MaxHeight = 175, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+            var card = Ui.Card(content);
+            card.Margin = new Thickness(0, 0, 8, 0);
+            cards.Children.Add(card);
+        }
+        var section = new Expander { Header = "Widgets", IsExpanded = _widgetsOpen, Content = cards, Margin = new Thickness(0, 8, 0, 8) };
+        section.Expanded += (_, _) => _widgetsOpen = true;
+        section.Collapsed += (_, _) => _widgetsOpen = false;
+        return section;
     }
 
     private static async Task<TabFetch> FetchAsync(string path)
