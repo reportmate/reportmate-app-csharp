@@ -88,7 +88,19 @@ public sealed class ReportPage : FleetPage
 {
     private readonly ReportArea _area;
 
-    public ReportPage(ReportArea area) => _area = area;
+    private readonly string? _category;
+    private readonly DeepLink? _carried;
+
+    public ReportPage(ReportArea area, string? category = null, DeepLink? carried = null)
+    {
+        _area = area;
+        _category = category;
+        _carried = carried;
+    }
+
+    public DeepLink CurrentLink() => Link ?? _carried ?? ModuleTabs.Link(_area.Id, _category ?? ModuleTabs.DefaultKey(_area.Id));
+
+    private new string? Filter(string key) => CurrentLink()[key];
 
     protected override (string, string, Accent)? Heading =>
         (_area.Title, _area.Subtitle, _area.Accent);
@@ -96,7 +108,7 @@ public sealed class ReportPage : FleetPage
     protected override async Task<UIElement> BuildAsync()
     {
         var page = new StackPanel();
-        var spec = ReportSpec.For(_area.Id);
+        var spec = _category is null ? ReportSpec.For(_area.Id) : ReportSpec.SecurityCategory(_category);
         if (spec is null)
         {
             page.Children.Add(Ui.TabHeader(_area.Title, _area.Subtitle, "", _area.Accent));
@@ -157,11 +169,13 @@ public sealed class ReportPage : FleetPage
         // between them, as the web does: System's Services and Updates, Management's
         // profiles and tools logs, Security's vulnerabilities, Identity's posture.
         page.Children.Add(ModuleTabs.All.ContainsKey(_area.Id)
-            ? ModuleSwitch.Header(this, _area.Id, ModuleTabs.DefaultKey(_area.Id), right)
+            ? ModuleSwitch.Header(this, _area.Id, _category ?? ModuleTabs.DefaultKey(_area.Id), right)
             : Ui.TabHeader(_area.Title, _area.Subtitle, "", _area.Accent, right));
 
         // Enrollment health problem filters, on the Device Management Service report.
         if (spec.Module == "management") page.Children.Add(EnrollmentHealthBar());
+
+        if (_category == "certificates") page.Children.Add(CertificateLookup());
 
         if (rows.Count == 0)
         {
@@ -174,10 +188,10 @@ public sealed class ReportPage : FleetPage
         // A certificate link opens the security report on the certificates it names,
         // which the per-device rows cannot show, so they get a table of their own.
         if (spec.Module == "security" && (Filter("certSearch") is not null || Filter("certStatus") is not null))
-            page.Children.Add(await CertificatesAsync(Filter("certSearch"), Filter("certStatus")));
+            page.Children.Add(await CertificatesAsync(Filter("certSearch"), Filter("certStatus"), Filter("certClass")));
 
         var distributions = BuildDistributions(spec, rows,
-            capped ? $"{deviceCount:N0} devices" : null);
+            capped ? $"{deviceCount:N0} devices" : null, includeUniform: _category is not null);
         if (distributions is not null) page.Children.Add(distributions);
         page.Children.Add(BuildTable(spec, rows, Filter("q") ?? Filter("search")));
         if (capped)
@@ -195,10 +209,11 @@ public sealed class ReportPage : FleetPage
     /// </summary>
     private UIElement WithActiveFilters(UIElement count)
     {
-        var active = Link?.Query.AllKeys
-            .Where(k => !string.IsNullOrEmpty(k) && !string.IsNullOrEmpty(Link.Query[k]))
-            .Select(k => $"{k}: {Link.Query[k]}")
-            .ToList() ?? [];
+        var query = CurrentLink().Query;
+        var active = query.AllKeys
+            .Where(k => k is not null && k != "tab" && !string.IsNullOrEmpty(query[k]))
+            .Select(k => $"{k}: {query[k]}")
+            .ToList();
         if (active.Count == 0) return count;
 
         var panel = new StackPanel { Orientation = Orientation.Horizontal };
@@ -208,7 +223,7 @@ public sealed class ReportPage : FleetPage
         panel.Children.Add(pill);
         if (count is FrameworkElement fe) fe.VerticalAlignment = VerticalAlignment.Center;
         panel.Children.Add(count);
-        var all = Ui.IconButton("\uE894", "Show all", (_, _) => DashboardView.Follow(this, DeepLink.For(_area.Id)));
+        var all = Ui.IconButton("\uE894", "Show all", (_, _) => DashboardView.Follow(this, ModuleTabs.Link(_area.Id, _category ?? ModuleTabs.DefaultKey(_area.Id))));
         all.Margin = new Thickness(10, 0, 0, 0);
         panel.Children.Add(all);
         return panel;
@@ -317,7 +332,7 @@ public sealed class ReportPage : FleetPage
     /// a page whose header said 903.
     /// A dimension every device answers identically says nothing, so it is dropped.
     /// </summary>
-    private static UIElement? BuildDistributions(ReportSpec spec, List<JsonElement> rows, string? coverage = null)
+    private static UIElement? BuildDistributions(ReportSpec spec, List<JsonElement> rows, string? coverage = null, bool includeUniform = false)
     {
         var cards = new List<UIElement>();
         var platformField = PlatformField;
@@ -366,7 +381,7 @@ public sealed class ReportPage : FleetPage
             if (scalar && answered < source.Count)
                 counts["Unknown"] = counts.GetValueOrDefault("Unknown") + (source.Count - answered);
 
-            if (counts.Count < 2) continue;
+            if (counts.Count < 2 && !includeUniform) continue;
 
             var total = counts.Values.Sum();
             var body = new StackPanel();
@@ -404,11 +419,13 @@ public sealed class ReportPage : FleetPage
         return grid;
     }
 
-    private static UIElement BuildTable(ReportSpec spec, List<JsonElement> rows, string? query)
+    private UIElement BuildTable(ReportSpec spec, List<JsonElement> rows, string? query)
     {
         var headers = spec.Columns.Select(c => c.Header).ToList();
         var data = rows.Select(row => new ReportRow(
-            headers.Zip(spec.Columns.Select(c => c.Field.Read(row))).ToDictionary(p => p.First, p => p.Second)) { Source = row })
+            headers.Zip(spec.Columns.Select(c => _category is not null && c.Field.Platform is { } platform
+                && !string.Equals(PlatformField.Read(row), platform, StringComparison.OrdinalIgnoreCase)
+                    ? "Not applicable" : c.Field.Read(row))).ToDictionary(p => p.First, p => p.Second)) { Source = row })
             .ToList();
 
         var columns = spec.Columns
@@ -427,9 +444,9 @@ public sealed class ReportPage : FleetPage
             $"Search {spec.RowNoun}...", $"No {spec.RowNoun} match the current filters")
             .WithQuery(query)
             // Every report row belongs to a device; clicking it opens that device.
-            .WithRowLink(r => r["Serial"] is { Length: > 0 } serial ? DeepLink.For("device", serial) : null)
+            .WithRowLink(r => r["Serial"] is { Length: > 0 } serial ? DeepLink.For("device", serial, ("tab", _category is null ? null : "security")) : null)
             // The columns on screen; the management report adds every enrollment health field, as the web export does.
-            .WithCsv($"{spec.Module}-report-{DateTime.Now:yyyy-MM-dd}.csv",
+            .WithCsv($"{spec.Module}-{_category ?? "report"}-{DateTime.Now:yyyy-MM-dd}.csv",
                 spec.Module == "management" ? [.. headers, .. EnrollmentHealth.CsvHeaders] : [.. headers],
                 r => spec.Module == "management" && r.Source is { } source
                     ? headers.Select(h => (string?)r[h]).Concat(EnrollmentHealth.CsvValues(source))
@@ -439,15 +456,42 @@ public sealed class ReportPage : FleetPage
         return table;
     }
 
+    private UIElement CertificateLookup()
+    {
+        var search = new TextBox { Text = Filter("certSearch") ?? "", Width = 230, Margin = new Thickness(0, 0, 8, 0) };
+        System.Windows.Automation.AutomationProperties.SetName(search, "Certificate name");
+        var status = new ComboBox { ItemsSource = new[] { "all", "valid", "expiring", "expired" }, SelectedItem = Filter("certStatus") ?? "all", Margin = new Thickness(0, 0, 8, 0) };
+        System.Windows.Automation.AutomationProperties.SetName(status, "Certificate status");
+        var systemManaged = new CheckBox { Content = CertificateView.ShowSystemManagedLabel, IsChecked = Filter("certClass") == "all", Margin = new Thickness(0, 0, 8, 0) };
+        void Search()
+        {
+            var query = CurrentLink().Query;
+            var kept = query.AllKeys.Where(k => k is not null and not ("tab" or "certSearch" or "certStatus" or "certClass"))
+                .Select(k => (k!, query[k]));
+            var lookup = new (string, string?)[]
+            {
+                ("tab", "certificates"), ("certSearch", search.Text.Trim()), ("certStatus", status.SelectedItem as string ?? "all"),
+                ("certClass", systemManaged.IsChecked == true ? "all" : null),
+            };
+            DashboardView.Follow(this, DeepLink.For("security", null, [.. kept, .. lookup]));
+        }
+        search.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter) Search();
+        };
+        return Ui.HStack(search, status, systemManaged, Ui.IconButton("\uE721", "Search certificates", (_, _) => Search()));
+    }
+
     /// <summary>
     /// The fleet certificate search, <c>/api/v1/security/certificates</c>, for the
     /// <c>certSearch</c> and <c>certStatus</c> link parameters.
     /// </summary>
-    private static async Task<UIElement> CertificatesAsync(string? search, string? status)
+    private static async Task<UIElement> CertificatesAsync(string? search, string? status, string? certClass)
     {
         var query = "/api/v1/security/certificates?limit=2000"
             + (string.IsNullOrWhiteSpace(search) ? "" : "&search=" + Uri.EscapeDataString(search))
-            + (status is "expired" or "expiring" or "valid" ? "&status=" + status : "");
+            + (status is "expired" or "expiring" or "valid" ? "&status=" + status : "")
+            + (certClass == "all" ? "&class=all" : "");
         var result = await FleetApiClient.Instance.GetRawAsync(query);
         var title = string.IsNullOrWhiteSpace(search) ? "Certificates" : $"Certificates matching \u201c{search}\u201d";
         if (!result.Ok)

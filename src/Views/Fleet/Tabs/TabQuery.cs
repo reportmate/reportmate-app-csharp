@@ -99,9 +99,13 @@ public sealed class TabQuery
         string.Join("&", pairs.Select(p => Uri.EscapeDataString(p.Key) + "=" + Uri.EscapeDataString(p.Value)));
 
     /// <summary>The link that reopens this view: <c>/&lt;module&gt;?tab=&lt;tab&gt;&amp;...</c>.</summary>
-    public DeepLink Link(string module, string tab) =>
-        DeepLink.For(module, null, new[] { ("tab", (string?)tab) }
-            .Concat(_values.Select(kv => (kv.Key, (string?)kv.Value))).ToArray());
+    public DeepLink Link(string module, string tab)
+    {
+        var threats = module == "security" && tab == "threats";
+        var route = threats ? new[] { ("tab", (string?)"vulnerabilities"), ("view", "threats") } : [("tab", tab)];
+        return DeepLink.For(module, null, route.Concat(_values.Where(kv => !threats || kv.Key != "view")
+            .Select(kv => (kv.Key, (string?)kv.Value))).ToArray());
+    }
 
     public override string ToString() => Encode(_values.Select(kv => (kv.Key, kv.Value)));
 }

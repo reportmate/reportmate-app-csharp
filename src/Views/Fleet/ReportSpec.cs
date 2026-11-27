@@ -150,6 +150,51 @@ public sealed record ReportSpec(
 
     public static ReportSpec? For(string module) => All.GetValueOrDefault(module);
 
+    public static ReportSpec? SecurityCategory(string tab)
+    {
+        static Field Status(string label, Func<JsonElement, string?> read) => new(label, "", Derive: read);
+        static string? Flag(JsonElement row, string field, string yes = "Enabled", string no = "Disabled") =>
+            Insights.BoolishIfPresent(row, field) switch { true => yes, false => no, _ => null };
+        static string? Protection(JsonElement row) => !Insights.ReportsAntivirus(row) ? "Not reported"
+            : !Insights.Boolish(row, "antivirusEnabled") ? "Disabled"
+            : Insights.Boolish(row, "antivirusUpToDate") ? "Current" : "Out of Date";
+        static string Access(JsonElement row)
+        {
+            var ssh = Insights.Boolish(Insights.Prop(row, "secureShell") ?? default, "isServiceRunning");
+            var windows = Insights.IsWindows(row);
+            var rdp = windows && Insights.Boolish(row, "rdpEnabled");
+            return (ssh, rdp) switch
+            {
+                (true, true) => "SSH + RDP",
+                (true, false) => windows ? "SSH Only" : "SSH Enabled",
+                (false, true) => "RDP Only",
+                _ => "Disabled",
+            };
+        }
+
+        Field[] fields = tab switch
+        {
+            "encryption" => [Status("Encryption", r => Flag(r, "encryptionEnabled", "Encrypted", "Not Encrypted"))],
+            "protection" => [Status("Protection", Protection), new("Product", "antivirusName"), new("Version", "antivirusVersion"), new("Last scan", "antivirusLastScan")],
+            "detection" => [Status("Detection", r => Insights.ActiveThreats(r) > 0 ? "Threats Detected" : "Clean"),
+                new("Active threats", "activeThreatCount|detectionCount"), new("Blocked (30 days)", "detectionsBlocked30d"),
+                new("Cleaned (30 days)", "detectionsCleaned30d"), new("Last detection", "lastThreatDetectedAt")],
+            "firewall" => [Status("Firewall", r => Flag(r, "firewallEnabled"))],
+            "tampering" => [Status("Tampering", r => Insights.Boolish(r, "secureBootEnabled")
+                || (!Insights.IsWindows(r) && Insights.Boolish(r, "sipEnabled")) ? "Secured" : "Insecure"),
+                new("Secure Boot", "secureBootEnabled"), new("SIP", "sipEnabled", Platform: "macOS"),
+                new("TPM", "tpmEnabled", Platform: "Windows"), new("Firmware password", "firmwarePassword.statusDisplay")],
+            "access" => [Status("Access", Access), new("SSH configuration", "secureShell.statusDisplay")],
+            "certificates" => [Status("Certificates", CertificateView.FleetLabel), new("Reported certificates", "certificateCount"),
+                new("Expired", "userExpiredCertCount|expiredCertCount"), new("Expiring soon", "expiringSoonCertCount")],
+            _ => [],
+        };
+        if (fields.Length == 0) return null;
+        return new("security", [fields[0]],
+            [new("Device", new("Device", "deviceName"), Star: true), new("Serial", new("Serial", "serialNumber"), 150, Mono: true),
+             .. fields.Select(f => new ReportColumn(f.Label, f, 145))]);
+    }
+
     // Paths below are the report endpoints' own row shape, which is flattened and
     // NOT the nested per-device module JSON. They were read off the live responses;
     // guessing from the module shapes produced columns that were silently blank.

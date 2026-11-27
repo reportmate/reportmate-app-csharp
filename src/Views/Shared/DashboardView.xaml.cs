@@ -534,7 +534,10 @@ public partial class DashboardView : UserControl
             var parts = tag.Split(':');
             var carried = PendingLink is null && _replaced.TryGetValue(tag, out var shownTab) && shownTab is TabReportPage tabPage
                 ? tabPage.CurrentLink() : null;
-            page = new TabReportPage(parts[1], parts[2], carried);
+            page = parts[1] == "security" && ModuleTabs.IsSecurityPostureCategory(parts[2])
+                ? new ReportPage(ReportArea.ById("security")!, parts[2],
+                    PendingLink is null ? (_replaced.GetValueOrDefault(tag) as ReportPage)?.CurrentLink() : null)
+                : new TabReportPage(parts[1], parts[2], carried);
         }
         else if (tag.StartsWith("device:", StringComparison.Ordinal)) page = new DevicePage(tag["device:".Length..]);
         else if (tag == "coverage") page = new CoveragePage();
