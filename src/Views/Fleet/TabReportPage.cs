@@ -18,11 +18,37 @@ public static class ModuleSwitch
     {
         var area = ReportArea.ById(module)!;
         var tabs = ModuleTabs.All[module];
-        var views = Ui.Segmented(tabs.Select(t => (t.Key, t.Label)), current, key =>
+        var selected = current == "threats" && module == "security" ? "vulnerabilities" : current;
+        void Open(string key)
         {
             if (key != current) DashboardView.Follow(from, ModuleTabs.Link(module, key));
-        });
-        var subtitle = tabs.FirstOrDefault(t => t.Key == current)?.Subtitle ?? area.Subtitle;
+        }
+
+        var subtitle = current == "threats" && module == "security"
+            ? "Threat detections collected from endpoint protection, including blocked attack surface reduction events."
+            : tabs.FirstOrDefault(t => t.Key == selected)?.Subtitle ?? area.Subtitle;
+        if (module != "security")
+            return Ui.TabHeader(Ui.Segmented(tabs.Select(t => (t.Key, t.Label)), current, Open), subtitle, area.Glyph, area.Accent, right);
+
+        var selector = new ComboBox
+        {
+            ItemsSource = tabs, DisplayMemberPath = nameof(ModuleTab.Label),
+            SelectedValuePath = nameof(ModuleTab.Key), SelectedValue = selected,
+            MinWidth = 160,
+        };
+        System.Windows.Automation.AutomationProperties.SetName(selector, "Security report");
+        selector.SelectionChanged += (_, _) =>
+        {
+            if (selector.SelectedValue is string key) Open(key);
+        };
+        var views = new StackPanel();
+        views.Children.Add(selector);
+        if (selected == "vulnerabilities")
+        {
+            var nested = Ui.Segmented([("vulnerabilities", "CVEs"), ("threats", "Threat Detections")], current, Open);
+            nested.Margin = new Thickness(0, 6, 0, 0);
+            views.Children.Add(nested);
+        }
         return Ui.TabHeader(views, subtitle, area.Glyph, area.Accent, right);
     }
 }
@@ -66,7 +92,7 @@ public sealed class TabReportPage : FleetPage
         _ => "all",
     };
 
-    private ModuleTab Tab => ModuleTabs.All[_module].First(t => t.Key == _tab);
+    private ModuleTab Tab => ModuleTabs.All[_module].First(t => t.Key == (_module == "security" && _tab == "threats" ? "vulnerabilities" : _tab));
 
     protected override (string, string, Accent)? Heading => (Tab.Label, Tab.Subtitle, ReportArea.ById(_module)!.Accent);
 

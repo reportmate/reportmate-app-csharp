@@ -71,11 +71,24 @@ public class TabReportsTests
     [InlineData("reportmate://management/logs", "logs")]
     [InlineData("https://host.example.org/management?tab=preferences", "preferences")]
     [InlineData("https://host.example.org/security?tab=vulnerabilities&view=devices", "vulnerabilities")]
+    [InlineData("https://host.example.org/security?tab=certificates", "certificates")]
+    [InlineData("https://host.example.org/security?tab=threats&days=7", "threats")]
+    [InlineData("reportmate://security?tab=vulnerabilities&view=threats&days=7", "threats")]
     [InlineData("https://host.example.org/identity?tab=posture", "posture")]
     [InlineData("https://host.example.org/identity?tab=admins", "admins")]
     [InlineData("reportmate://identity?tab=admins&platform=mac", "admins")]
     public void A_link_names_its_module_tab(string url, string tab) =>
         Assert.Equal(tab, ModuleTabs.TabOf(DeepLink.Parse(url)!));
+
+    [Fact]
+    public void Threats_share_a_link_under_vulnerabilities_with_filters()
+    {
+        var link = Q(("days", "7"), ("view", "threats")).Link("security", "threats");
+        Assert.Equal("vulnerabilities", link["tab"]);
+        Assert.Equal("threats", link["view"]);
+        Assert.Equal("7", link["days"]);
+        Assert.Equal("threats", ModuleTabs.TabOf(link));
+    }
 
     [Theory]
     [InlineData("https://host.example.org/system")]
@@ -110,10 +123,10 @@ public class TabReportsTests
     }
 
     [Fact]
-    public void Every_module_tab_but_the_module_report_has_a_definition()
+    public void Every_endpoint_backed_module_tab_has_a_definition()
     {
         foreach (var (module, tabs) in ModuleTabs.All)
-            foreach (var tab in tabs.Skip(1).Where(t => t.Key != "logs"))
+            foreach (var tab in tabs.Skip(1).Where(t => t.Key != "logs" && !(module == "security" && ModuleTabs.IsSecurityPostureCategory(t.Key))))
                 Assert.NotNull(TabReports.Find(module, tab.Key, new TabQuery()));
     }
 

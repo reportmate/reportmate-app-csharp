@@ -34,9 +34,15 @@ public static class ModuleTabs
         ],
         ["security"] =
         [
-            new("posture", "Fleet Security", "Protection status and findings"),
+            new("posture", "Security", "Protection status and findings"),
+            new("encryption", "Encryption", "Disk encryption across devices."),
+            new("protection", "Protection", "Endpoint protection status across devices."),
+            new("detection", "Detection", "Active threats and recent detection activity across devices."),
+            new("firewall", "Firewall", "Firewall status across devices."),
+            new("tampering", "Tampering", "Device integrity and tamper protection across devices."),
+            new("access", "Access", "SSH and Remote Desktop status across devices."),
+            new("certificates", "Certificates", "Certificate coverage and expiry across devices."),
             new("vulnerabilities", "Vulnerabilities", "CVEs collected on each device: Windows security updates and macOS unpatched CVEs."),
-            new("threats", "Threat Detections", "Threat detections collected from endpoint protection, including blocked attack surface reduction events."),
         ],
         ["identity"] =
         [
@@ -46,6 +52,9 @@ public static class ModuleTabs
         ],
     };
 
+    public static bool IsSecurityPostureCategory(string key) =>
+        key is not ("posture" or "vulnerabilities") && All["security"].Any(t => t.Key == key);
+
     /// <summary>The module's own report, which the bare link opens.</summary>
     public static string DefaultKey(string module) => All.TryGetValue(module, out var tabs) ? tabs[0].Key : "";
 
@@ -54,11 +63,15 @@ public static class ModuleTabs
     {
         if (!All.TryGetValue(link.Section, out var tabs)) return null;
         var key = (link.Argument ?? link["tab"])?.Trim().ToLowerInvariant();
+        if (link.Section == "security" && (key == "threats" || (key == "vulnerabilities" && link["view"] == "threats")))
+            return "threats";
         return key is not null && key != tabs[0].Key && tabs.Any(t => t.Key == key) ? key : null;
     }
 
     public static DeepLink Link(string module, string key) =>
-        key == DefaultKey(module)
+        module == "security" && key == "threats"
+            ? DeepLink.For(module, null, ("tab", "vulnerabilities"), ("view", "threats"))
+            : key == DefaultKey(module)
             ? DeepLink.For(module)
             : module == "management" && key == "logs"
                 ? DeepLink.For("management", "logs")
